@@ -8,6 +8,7 @@ import { Resources } from "./render/Resources.mjs";
 import { Scene } from "./render/Scene.mjs";
 import { BlockPicker } from "./ui/BlockPicker.mjs";
 import { PackPanel } from "./ui/PackPanel.mjs";
+import { StateBar } from "./ui/StateBar.mjs";
 
 const AUTOSAVE_KEY = "redstone-modeler.autosave";
 const $ = id => document.getElementById(id);
@@ -24,6 +25,16 @@ const picker = new BlockPicker({
 
 /** @type {Resources|null} */
 let resources = null;
+
+const state_bar = new StateBar({
+    bar: $("state_bar"),
+    toggle: $("state_toggle"),
+    filters: $("state_filters"),
+    grid: $("state_grid"),
+    note: $("state_note"),
+    dedupe: $("state_dedupe"),
+}, picker, icons, () => resources);
+picker.on_change = () => state_bar.refresh();
 
 async function use_pack(bytes) {
     const { pack, atlas_image } = await load_compiled(bytes);
@@ -58,8 +69,36 @@ function flash(button, message, error = false) {
     });
 }
 
+function set_eraser(on) {
+    scene.erase = on;
+    $("erase_button").classList.toggle("selected", on);
+}
+$("erase_button").addEventListener("click", () => set_eraser(!scene.erase));
+$("block_list").addEventListener("click", () => set_eraser(false));
+
+// Clearing needs a second click so a stray click cannot wipe the model
+let clear_timer = null;
+$("clear_button").addEventListener("click", () => {
+    const button = $("clear_button");
+    if (clear_timer === null) {
+        button.textContent = "Sure? Click again";
+        button.classList.add("error");
+        clear_timer = setTimeout(reset_clear_button, 3000);
+    }
+    else {
+        world.clear();
+        reset_clear_button();
+    }
+});
+function reset_clear_button() {
+    clearTimeout(clear_timer);
+    clear_timer = null;
+    $("clear_button").textContent = "Clear";
+    $("clear_button").classList.remove("error");
+}
+
 scene.on_click = (x, y, z, button, event) => {
-    if (button === 2) {
+    if (button === 2 || (scene.erase && button === 0 && !event.altKey)) {
         world.remove(x, y, z);
     }
     else if (event.altKey) {
@@ -71,31 +110,50 @@ scene.on_click = (x, y, z, button, event) => {
     else if (button === 0) {
         const selected = picker.selected;
         if (selected) {
+            // In the 2D view clicking an occupied cell replaces the block
             world.set(x, y, z, selected);
         }
     }
 };
 
-function change_layer(delta) {
-    scene.set_layer(scene.layer + delta);
-    $("layer_number").textContent = `y = ${scene.layer}`;
+// The plane controls only exist in the axis aligned 2D views
+function update_plane_controls() {
+    const { view, plane } = scene;
+    $("plane_controls").hidden = view === null;
+    if (view) {
+        $("layer_number").textContent = `${"xyz"[view.axis]} = ${plane}`;
+    }
 }
-$("layer_up").addEventListener("click", () => change_layer(1));
-$("layer_down").addEventListener("click", () => change_layer(-1));
-$("layer_number").textContent = `y = ${scene.layer}`;
+scene.on_view_change = update_plane_controls;
+$("layer_up").addEventListener("click", () => scene.move_plane(1));
+$("layer_down").addEventListener("click", () => scene.move_plane(-1));
 
+const NUMPAD_VIEWS = { Numpad7: "y", Numpad1: "z", Numpad3: "x" };
 window.addEventListener("keydown", (e) => {
-    if (e.target.matches("input, select, textarea") || e.ctrlKey || e.metaKey) {
+    if (e.target.matches("input, select, textarea") || e.metaKey) {
         return;
     }
-    if (/^[1-9]$/.test(e.key)) {
-        picker.set_slot(Number(e.key) - 1);
+    if (NUMPAD_VIEWS[e.code]) {
+        scene.view_to(`${e.ctrlKey ? "-" : "+"}${NUMPAD_VIEWS[e.code]}`);
+    }
+    else if (e.code === "Numpad5") {
+        scene.view_to("iso");
+    }
+    else if (e.ctrlKey) {
+        return;
+    }
+    else if (/^Digit[1-9]$/.test(e.code)) {
+        set_eraser(false);
+        picker.set_slot(Number(e.code.slice(5)) - 1);
+    }
+    else if (e.code === "KeyE") {
+        set_eraser(!scene.erase);
     }
     else if (e.key === "]") {
-        change_layer(1);
+        scene.move_plane(1);
     }
     else if (e.key === "[") {
-        change_layer(-1);
+        scene.move_plane(-1);
     }
 });
 
@@ -193,6 +251,6 @@ catch (e) {
 }
 
 // Exposed for tests and debugging
-window.__rm = { world, scene, picker, pack_panel, get resources() {
+window.__rm = { world, scene, picker, pack_panel, state_bar, get resources() {
     return resources;
 } };

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parse_variant_key, select_models, select_models_layered, when_matches } from "../js/pack/BlockStates.mjs";
+import { enumerate_states, parse_variant_key, state_count, select_models, select_models_layered, when_matches } from "../js/pack/BlockStates.mjs";
 import { collect } from "../js/pack/Compiler.mjs";
 import { CompiledPack } from "../js/pack/CompiledPack.mjs";
 import { Pack, parse_json } from "../js/pack/Pack.mjs";
@@ -159,4 +159,35 @@ test("entity blocks use the fallback model only when the packs give them no geom
     assert.notEqual(data.blockstates["minecraft:stone"][0], fallback.blockstates.stone, "blocks with real models keep them");
     assert.equal(data.models["custom:entity/chest"].elements.length, 1);
     assert.ok(data.textures.includes("minecraft:block/stone"));
+});
+
+test("state enumeration covers the cartesian product", () => {
+    const wire = {
+        power: Array.from({ length: 16 }, (_, i) => String(i)),
+        north: ["none", "side", "up"],
+        east: ["none", "side", "up"],
+        south: ["none", "side", "up"],
+        west: ["none", "side", "up"],
+    };
+    assert.equal(state_count(wire), 1296);
+    const all = [...enumerate_states(wire)];
+    assert.equal(all.length, 1296);
+    assert.equal(new Set(all.map(s => JSON.stringify(s))).size, 1296);
+    assert.deepEqual(all[0], { power: "0", north: "none", east: "none", south: "none", west: "none" });
+    assert.equal([...enumerate_states(wire, { power: "15", north: "up" })].length, 27);
+    assert.equal([...enumerate_states(wire, { power: "99" })].length, 0);
+    assert.deepEqual([...enumerate_states({})], [{}]);
+    assert.equal(state_count({}), 1);
+});
+
+test("signature tells apart states that look different and merges ones that look the same", () => {
+    const base = compiled(new PackStack([base_pack()]));
+    const same = (a, b) => base.signature("minecraft:observer", a) === base.signature("minecraft:observer", b);
+    assert.ok(same({ facing: "north", powered: "false" }, { facing: "north", powered: "true" }));
+    assert.ok(!same({ facing: "north", powered: "false" }, { facing: "east", powered: "false" }));
+    const layered = compiled(stack());
+    assert.notEqual(
+        layered.signature("minecraft:observer", { facing: "north", powered: "false" }),
+        layered.signature("minecraft:observer", { facing: "north", powered: "true" }),
+    );
 });

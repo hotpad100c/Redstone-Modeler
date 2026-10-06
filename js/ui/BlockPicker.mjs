@@ -25,6 +25,8 @@ export class BlockPicker {
         this.slots = Array.from({ length: SLOT_COUNT }, () => null);
         this.slot = 0;
         this.items = new Map();
+        /** @type {() => void} Called when the held block or its state changes */
+        this.on_change = () => {};
         this.observer = new IntersectionObserver((entries) => {
             for (const entry of entries) {
                 if (entry.isIntersecting) {
@@ -83,6 +85,7 @@ export class BlockPicker {
         this._filter();
         this._render_states();
         this._render_hotbar();
+        this.on_change();
     }
 
     /**
@@ -97,6 +100,21 @@ export class BlockPicker {
         this.slots[this.slot] = { name, props: { ...this.pack.default_state(name), ...props } };
         this._render_states();
         this._render_hotbar();
+        this.on_change();
+    }
+
+    /**
+     * Changes properties of the held block.
+     * @param {Record<string, string>} props
+     */
+    set_props(props) {
+        const block = this.slots[this.slot];
+        if (block) {
+            Object.assign(block.props, props);
+            this._render_states();
+            this._render_hotbar();
+            this.on_change();
+        }
     }
 
     /** @param {number} index */
@@ -104,6 +122,7 @@ export class BlockPicker {
         this.slot = Math.max(0, Math.min(SLOT_COUNT - 1, index));
         this._render_states();
         this._render_hotbar();
+        this.on_change();
     }
 
     _filter() {
@@ -157,6 +176,7 @@ export class BlockPicker {
             select.addEventListener("change", () => {
                 block.props[prop] = select.value;
                 this._render_hotbar();
+                this.on_change();
             });
             row.append(text, select);
             this.states.appendChild(row);
