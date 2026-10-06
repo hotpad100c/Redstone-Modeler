@@ -4,6 +4,8 @@ import stylistic from "@stylistic/eslint-plugin";
 
 export default [
     { languageOptions: { globals: globals.browser } },
+    { files: ["tests/**"], languageOptions: { globals: globals.node } },
+    { ignores: ["lib/**"] },
     pluginJs.configs.recommended,
     { rules: { eqeqeq: ["error", "always"] } },
     stylistic.configs.customize({

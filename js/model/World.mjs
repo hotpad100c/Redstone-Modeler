@@ -1,6 +1,6 @@
 /**
  * Sparse 3D block storage. Coordinates follow Minecraft: x/z horizontal, y up.
- * A block is `{ name, props }`, for example `{ name: "minecraft:stone", props: {} }`.
+ * A block is `{ name, props }`, for example `{ name: "minecraft:observer", props: { facing: "north" } }`.
  */
 export class World {
     /**
@@ -48,7 +48,7 @@ export class World {
     }
 
     /**
-     * @returns {Iterable<[number, number, number, {name: string, props: object}]>}
+     * @returns {Iterable<[number, number, number, {name: string, props: Record<string, string>}]>}
      */
     * entries() {
         for (const [key, block] of this.blocks) {
