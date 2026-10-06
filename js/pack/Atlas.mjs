@@ -76,6 +76,76 @@ function yield_to_ui() {
 }
 
 /**
+ * Draws a texture and repeats its outermost pixels around it, so that nearest filtering never bleeds.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {CanvasImageSource} image
+ */
+function draw_with_border(ctx, image, w, h, ix, iy) {
+    ctx.drawImage(image, 0, 0, w, h, ix, iy, w, h);
+    ctx.drawImage(image, 0, 0, w, 1, ix, iy - 1, w, 1);
+    ctx.drawImage(image, 0, h - 1, w, 1, ix, iy + h, w, 1);
+    ctx.drawImage(image, 0, 0, 1, h, ix - 1, iy, 1, h);
+    ctx.drawImage(image, w - 1, 0, 1, h, ix + w, iy, 1, h);
+    ctx.drawImage(image, 0, 0, 1, 1, ix - 1, iy - 1, 1, 1);
+    ctx.drawImage(image, w - 1, 0, 1, 1, ix + w, iy - 1, 1, 1);
+    ctx.drawImage(image, 0, h - 1, 1, 1, ix - 1, iy + h, 1, 1);
+    ctx.drawImage(image, w - 1, h - 1, 1, 1, ix + w, iy + h, 1, 1);
+}
+
+/**
+ * Whether a texture hides what is behind it, and whether it is see-through in between.
+ * @param {Uint8ClampedArray} pixels RGBA
+ */
+export function transparency(pixels) {
+    let opaque = true;
+    let translucent = false;
+    for (let i = 3; i < pixels.length; i += 4) {
+        if (pixels[i] !== 255) {
+            opaque = false;
+            if (pixels[i] !== 0) {
+                translucent = true;
+            }
+        }
+    }
+    return { opaque, translucent };
+}
+
+/**
+ * Builds an atlas from the pixels of textures.
+ * @param {{id: string, w: number, h: number, rgba: Uint8ClampedArray}[]} pictures
+ */
+export async function compose_atlas(pictures) {
+    const entries = pictures.map(({ id, w, h, rgba }) => ({ id, w, h, rgba }));
+    const { width, height } = layout(entries);
+    const canvas = make_canvas(width, height);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    const textures = {};
+    for (const { id, w, h, rgba, x, y } of entries) {
+        const piece = make_canvas(w, h);
+        piece.getContext("2d").putImageData(new ImageData(rgba, w, h), 0, 0);
+        draw_with_border(ctx, piece, w, h, x, y);
+        textures[id] = { x, y, w, h, ...transparency(rgba) };
+    }
+    return { atlas: { width, height, textures }, png: await canvas_to_png(canvas) };
+}
+
+/**
+ * The pixels of some textures of an atlas, without their border.
+ * @param {HTMLCanvasElement} source
+ * @param {Record<string, {x: number, y: number, w: number, h: number}>} textures
+ * @param {string[]} ids
+ * @returns {{id: string, w: number, h: number, rgba: Uint8ClampedArray}[]}
+ */
+export function extract_pixels(source, textures, ids) {
+    const ctx = source.getContext("2d", { willReadFrequently: true });
+    return ids.map((id) => {
+        const { x, y, w, h } = textures[id];
+        return { id, w, h, rgba: ctx.getImageData(x, y, w, h).data };
+    });
+}
+
+/**
  * Shelf packing, tallest first. Gives every entry a position `x`, `y` (inside its one pixel border).
  * @param {{w: number, h: number}[]} entries
  * @returns {{width: number, height: number}}
@@ -172,28 +242,8 @@ export async function build_atlas(stack, ids, progress = () => {}) {
     ctx.imageSmoothingEnabled = false;
     const textures = {};
     for (const { id, image, w, h, x: ix, y: iy } of entries) {
-        ctx.drawImage(image, 0, 0, w, h, ix, iy, w, h);
-        ctx.drawImage(image, 0, 0, w, 1, ix, iy - 1, w, 1);
-        ctx.drawImage(image, 0, h - 1, w, 1, ix, iy + h, w, 1);
-        ctx.drawImage(image, 0, 0, 1, h, ix - 1, iy, 1, h);
-        ctx.drawImage(image, w - 1, 0, 1, h, ix + w, iy, 1, h);
-        ctx.drawImage(image, 0, 0, 1, 1, ix - 1, iy - 1, 1, 1);
-        ctx.drawImage(image, w - 1, 0, 1, 1, ix + w, iy - 1, 1, 1);
-        ctx.drawImage(image, 0, h - 1, 1, 1, ix - 1, iy + h, 1, 1);
-        ctx.drawImage(image, w - 1, h - 1, 1, 1, ix + w, iy + h, 1, 1);
-
-        const pixels = ctx.getImageData(ix, iy, w, h).data;
-        let opaque = true;
-        let translucent = false;
-        for (let i = 3; i < pixels.length; i += 4) {
-            if (pixels[i] !== 255) {
-                opaque = false;
-                if (pixels[i] !== 0) {
-                    translucent = true;
-                }
-            }
-        }
-        textures[id] = { x: ix, y: iy, w, h, opaque, translucent };
+        draw_with_border(ctx, image, w, h, ix, iy);
+        textures[id] = { x: ix, y: iy, w, h, ...transparency(ctx.getImageData(ix, iy, w, h).data) };
     }
     progress(ids.length, ids.length);
     return { atlas: { width, height, textures }, png: await canvas_to_png(canvas) };

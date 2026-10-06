@@ -768,6 +768,38 @@ function picture_of(target) {
     });
 }
 
+/**
+ * Stands in for the network clipboards. `store` is shared between pages, so that what one page
+ * uploads another can fetch. Options: `blocked`, `mangle(bytes)`, `status`.
+ */
+async function install_mock(context, { store, blocked = false, mangle = x => x, status = 200, log = [] }) {
+    const headers = { "access-control-allow-origin": "*" };
+    await context.route(/^https:\/\/api\.(mclo\.gs|pastes\.dev)\//, async (route) => {
+        const request = route.request();
+        const { hostname, pathname } = new URL(request.url());
+        log.push(`${request.method()} ${hostname}${pathname}`);
+        if (blocked) {
+            // What the page sees when the browser refuses a request across origins
+            return route.abort("failed");
+        }
+        if (status !== 200) {
+            return route.fulfill({ status, headers, body: "no" });
+        }
+        const mclogs = hostname === "api.mclo.gs";
+        if (request.method() === "POST") {
+            const id = `id${store.size + 1}x`;
+            const bytes = mclogs
+                ? new TextEncoder().encode(new URLSearchParams(request.postData()).get("content"))
+                : request.postDataBuffer();
+            store.set(`${mclogs ? "mclogs" : "pastes"}/${id}`, mangle(new Uint8Array(bytes)));
+            return route.fulfill({ status: 200, headers, contentType: "application/json", body: JSON.stringify(mclogs ? { success: true, id } : { key: id }) });
+        }
+        const id = pathname.split("/").pop();
+        const bytes = store.get(`${mclogs ? "mclogs" : "pastes"}/${id}`);
+        return bytes ? route.fulfill({ status: 200, headers, body: Buffer.from(bytes) }) : route.fulfill({ status: 404, headers, body: "none" });
+    });
+}
+
 const SHARED_BLOCKS = [
     [10, 0, 10, "minecraft:observer", { facing: "south", powered: "true" }],
     [11, 0, 10, "minecraft:observer", { facing: "north", powered: "false" }],
@@ -777,11 +809,14 @@ const SHARED_BLOCKS = [
     [10, 0, 12, "minecraft:oak_fence", { north: "true" }],
 ];
 
-async function fresh_page() {
+async function fresh_page(hash = "", mock = null) {
     const fresh = await browser.newContext({ locale: "en-US", viewport: { width: 1100, height: 760 }, permissions: ["clipboard-read", "clipboard-write"] });
+    if (mock) {
+        await install_mock(fresh, mock);
+    }
     const other = await fresh.newPage();
     other.on("pageerror", e => problems.push(e.message));
-    await other.goto(url);
+    await other.goto(url + hash);
     await other.waitForFunction(() => window.__rm);
     return { fresh, other };
 }
@@ -833,7 +868,7 @@ await step("share: copy the code and download the file", async () => {
     await page.click("#share_copy");
     await page.waitForFunction(() => document.getElementById("share_status").textContent === "Code copied");
     shared_code = await page.evaluate(() => navigator.clipboard.readText());
-    assert.ok(shared_code.startsWith("RMS1."));
+    assert.ok(shared_code.startsWith("RMS2."), "the compact encoding is the default");
     assert.equal(shared_code, await page.evaluate(() => window.__rm.share_panel.result.code));
     assert.equal(await page.inputValue("#share_code"), shared_code, "short codes are shown");
     const [download] = await Promise.all([page.waitForEvent("download"), page.click("#share_download")]);
@@ -917,6 +952,149 @@ await step("share: the file and the whole pack work as well", async () => {
     await second.other.click("#settings_button");
     assert.deepEqual(await second.other.$$eval("#search_language option", o => o.map(x => x.value)), ["", "zh_cn"]);
     await second.fresh.close();
+});
+
+await step("share: the standard encoding still works, and the compact one is shorter", async () => {
+    await page.click("#share_button");
+    await page.selectOption("#share_scope", "used");
+    await page.waitForFunction(() => window.__rm.share_panel.result?.stats.compact === true);
+    const compact = await page.evaluate(() => window.__rm.share_panel.result.stats);
+    assert.ok(compact.code_length < compact.standard_code_length, `${compact.code_length} against ${compact.standard_code_length}`);
+    assert.match(await page.textContent("#share_stats"), /the standard code would be/);
+    await page.uncheck("#share_compact");
+    await page.waitForFunction(() => window.__rm.share_panel.result?.stats.compact === false);
+    await page.click("#share_copy");
+    const standard = await page.evaluate(() => navigator.clipboard.readText());
+    assert.ok(standard.startsWith("RMS1."));
+    await page.check("#share_compact");
+    await page.click("#share_close");
+    const { fresh, other } = await fresh_page();
+    await other.fill("#load_input", standard);
+    await other.click("#load_button");
+    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    await fixed_view(other);
+    assert.deepEqual(await picture_of(other), sender_picture);
+    await fresh.close();
+});
+
+await step("share: minimal has no readable ids, and the blocks are found by their names", async () => {
+    await page.click("#share_button");
+    await page.check("#share_minimal");
+    await page.waitForFunction(() => window.__rm.share_panel.result?.stats.compact && document.getElementById("share_compact").disabled);
+    await page.click("#share_copy");
+    const minimal = await page.evaluate(() => navigator.clipboard.readText());
+    const raw = await page.evaluate(() => Array.from(window.__rm.share_panel.result.raw, b => String.fromCharCode(b)).join(""));
+    const { inflateSync } = await import("../lib/fflate.module.js");
+    // The placeholder texture keeps its id
+    const text = new TextDecoder().decode(inflateSync(Buffer.from(raw.slice(4), "latin1"))).replaceAll("minecraft:missing", "");
+    for (const word of ["minecraft", "observer", "powered", "facing", "block/stone"]) {
+        assert.ok(!text.includes(word), `"${word}" is in a minimal share`);
+    }
+    await page.uncheck("#share_minimal");
+    await page.click("#share_close");
+
+    const { fresh, other } = await fresh_page();
+    await other.fill("#load_input", minimal);
+    await other.click("#load_button");
+    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    await fixed_view(other);
+    assert.deepEqual(await picture_of(other), sender_picture, "this model has few colours, so nothing is lost");
+    const names = await other.$$eval(".block_item", items => items.map(i => i.dataset.name));
+    assert.equal(names.length, 5);
+    assert.ok(names.every(name => /^b:/.test(name)));
+    assert.ok((await other.$$eval(".block_item", items => items.map(i => i.title))).every(title => !title.includes(":")));
+    const search = async (query) => {
+        await other.fill("#block_search", query);
+        return other.$$eval(".block_item", items => items.filter(i => !i.hidden && i.style.display !== "none").map(i => i.querySelector(".block_name").textContent));
+    };
+    assert.deepEqual(await search("stone"), ["石头"], "the English name finds it, the chosen language is shown");
+    assert.deepEqual(await search("石头"), ["石头"]);
+    assert.deepEqual(await search("minecraft:stone"), []);
+    assert.deepEqual(await search("b:"), []);
+    await fresh.close();
+});
+
+await step("share: a share link goes through a network clipboard and opens in another browser", async () => {
+    for (const service of ["mclogs", "pastes"]) {
+        const store = new Map();
+        const log = [];
+        const mock = { store, log };
+        await install_mock(context, mock);
+        const messages = [];
+        const on_dialog = (dialog) => {
+            messages.push(dialog.message());
+            dialog.accept();
+        };
+        page.on("dialog", on_dialog);
+        await page.click("#share_button");
+        await page.selectOption("#share_service", service);
+        await page.waitForFunction(() => window.__rm.share_panel.result?.stats.compact);
+        await page.click("#share_link_button");
+        await page.waitForFunction(() => /Link copied|Could not/.test(document.getElementById("share_status").textContent), null, { timeout: 15000 });
+        assert.equal(await page.textContent("#share_status"), "Link copied");
+        const link = await page.evaluate(() => navigator.clipboard.readText());
+        assert.equal(link, await page.inputValue("#share_link"));
+        assert.match(link, new RegExp(`#share=${service}\\.id1x$`));
+        assert.ok(log.some(entry => entry.startsWith("POST")) && log.some(entry => entry.startsWith("GET")), "it was read back");
+        // The agreement is asked for once
+        await page.click("#share_link_button");
+        await page.waitForFunction(() => document.getElementById("share_link_button").disabled === false);
+        assert.equal(messages.length, service === "mclogs" ? 1 : 0, "asked the first time only");
+        page.off("dialog", on_dialog);
+        await page.click("#share_close");
+        await page.unroute(/^https:\/\/api\./);
+
+        const { fresh, other } = await fresh_page(link.slice(link.indexOf("#")), { store, log: [] });
+        await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+        assert.equal(await other.evaluate(() => location.hash), "", "the link is removed from the address");
+        assert.match(await other.textContent("#pack_summary"), /\(shared\)$/);
+        await fixed_view(other);
+        assert.deepEqual(await picture_of(other), sender_picture, service);
+        await fresh.close();
+
+        // Also from the Load box, as a link or as the address of the paste
+        const second = await fresh_page("", { store, log: [] });
+        await second.other.fill("#load_input", link);
+        await second.other.click("#load_button");
+        await second.other.waitForFunction(() => window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+        await second.fresh.close();
+    }
+});
+
+await step("share: a service that fails, changes the content, or does not allow the page is reported", async () => {
+    const before = problems.length;
+    const cases = [
+        ["changed", { store: new Map(), mangle: bytes => bytes.slice(0, bytes.length - 10) }, /changed what was uploaded/],
+        ["http", { store: new Map(), status: 503 }, /answered 503/],
+        ["blocked", { store: new Map(), blocked: true }, /could not be reached/],
+    ];
+    for (const [name, mock, expected] of cases) {
+        await install_mock(context, mock);
+        await page.click("#share_button");
+        await page.selectOption("#share_service", "mclogs");
+        await page.waitForFunction(() => window.__rm.share_panel.result?.stats.compact);
+        await page.click("#share_link_button");
+        await page.waitForFunction(() => document.getElementById("share_status").classList.contains("error"), null, { timeout: 20000 })
+            .catch(async (error) => {
+                throw new Error(`${name}: ${await page.textContent("#share_status")} / ${error.message}`);
+            });
+        assert.match(await page.textContent("#share_status"), expected, name);
+        assert.match(await page.textContent("#share_status"), /code and the file still work/);
+        assert.equal(await page.locator("#share_link").isVisible(), false, "no link is given out");
+        assert.equal(await page.locator("#share_copy").isDisabled(), false, "the code still works");
+        await page.click("#share_close");
+        await page.unroute(/^https:\/\/api\./);
+    }
+    // A link to something that is not there
+    const { fresh, other } = await fresh_page("#share=mclogs.nothing", { store: new Map() });
+    await other.waitForFunction(() => document.getElementById("link_banner").classList.contains("error"), null, { timeout: 15000 });
+    assert.match(await other.textContent("#link_banner"), /Could not open the shared model/);
+    assert.equal(await other.evaluate(() => window.__rm.world.blocks.size), 0);
+    await other.click("#pack_button");
+    assert.equal(await other.locator("#pack_dialog").isVisible(), true, "the page still works");
+    await fresh.close();
+    // Failing is what this step does; the errors the page logged about it are expected
+    problems.length = before;
 });
 
 await step("share: a damaged or foreign code is refused and nothing breaks", async () => {

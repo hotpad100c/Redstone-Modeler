@@ -11,7 +11,7 @@ export class Resources {
      */
     constructor(pack, atlas_image) {
         this.pack = pack;
-        this.tint = make_tint(pack.colormaps, pack.data.tint_colors);
+        this.tint = make_tint(pack.colormaps, pack.data.tint_colors, pack.data.tint_rules);
         this.texture = new THREE.CanvasTexture(atlas_image);
         this.texture.flipY = false;
         this.texture.premultiplyAlpha = false;

@@ -54,11 +54,20 @@ export function redstone_color(power) {
 /**
  * @param {{grass?: object, foliage?: object}} colormaps Decoded colour maps
  * @param {{grass: number[], foliage: number[]}} [fixed] Colours to use instead of sampling the maps
+ * @param {Record<string, {kind: "rgb"|"redstone", rgb?: number[], prop?: string, levels?: Record<string, number>}>} [rules]
+ *   Colours by block, for packs whose block ids are not the names the blocks are known by
  * @returns {(block: string, state: Record<string, string>) => number[]} RGB 0..1; white means untinted
  */
-export function make_tint(colormaps = {}, fixed = undefined) {
+export function make_tint(colormaps = {}, fixed = undefined, rules = undefined) {
     const { grass, foliage } = fixed ?? sample_colors(colormaps);
     return (block, state) => {
+        const rule = rules?.[block];
+        if (rule?.kind === "rgb") {
+            return rule.rgb.map(v => v / 255);
+        }
+        if (rule?.kind === "redstone") {
+            return redstone_color(rule.levels[state[rule.prop]] ?? 0).map(v => v / 255);
+        }
         const name = block.replace(/^minecraft:/, "");
         let rgb = WHITE;
         if (GRASS_BLOCKS.has(name)) {

@@ -117,6 +117,8 @@
             <div id="hotbar"></div>
         </div>
 
+        <div id="link_banner" role="status" hidden></div>
+
         <dialog id="share_dialog">
             <h2 data-i18n="share.title">Share this model</h2>
             <p class="note" data-i18n="share.intro">Packs the model together with the models and textures of the blocks it uses, so the other side does not need your resource packs. Copy the code, or send the file when the code is too long for a message.</p>
@@ -128,6 +130,8 @@
                         <option value="pack" data-i18n="share.scope_pack">The whole compiled resource pack</option>
                     </select></label></div>
                 <div class="row" id="share_languages_row" hidden><label><input id="share_all_languages" type="checkbox" /> <span data-i18n="share.all_languages">Keep the block names of every language</span></label></div>
+                <div class="row"><label><input id="share_compact" type="checkbox" checked /> <span data-i18n="share.compact" data-i18n-title="share.compact_title" title="A tighter encoding: smaller codes, same result">Compact encoding</span></label></div>
+                <div class="row"><label><input id="share_minimal" type="checkbox" /> <span data-i18n="share.minimal" data-i18n-title="share.minimal_title" title="Lossy: at most 256 colours, and block ids, states and models are replaced by codes. Blocks can then only be found by their names.">Minimal (lossy)</span></label></div>
                 <div id="share_stats" class="note"></div>
                 <div id="share_parts" class="note"></div>
                 <div id="share_warning" class="error"></div>
@@ -136,6 +140,15 @@
                     <button type="button" id="share_copy" data-i18n="share.copy">Copy share code</button>
                     <button type="button" id="share_download" data-i18n="share.download">Download file (.rmmodel)</button>
                 </div>
+                <div class="row">
+                    <label><span data-i18n="share.service">Upload to</span>
+                        <select id="share_service">
+                            <option value="mclogs">mclo.gs</option>
+                            <option value="pastes">pastes.dev</option>
+                        </select></label>
+                    <button type="button" id="share_link_button" data-i18n="share.link_button">Copy share link</button>
+                </div>
+                <input id="share_link" type="text" readonly spellcheck="false" hidden />
                 <div id="share_status" class="note"></div>
                 <p class="note" data-i18n="share.copyright">The code contains the textures of the blocks that are used. Only share what you may share.</p>
             </section>
