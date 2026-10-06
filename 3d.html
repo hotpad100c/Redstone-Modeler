@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, user-scalable=no">
+        <title>Modeler 3D</title>
+        <link rel="stylesheet" href="style3d.css" />
+        <script type="importmap">
+            { "imports": { "three": "./lib/three.module.min.js" } }
+        </script>
+    </head>
+    <body>
+        <div id="top_bar">
+            <span class="hint">Left click: place · Right click: remove · Drag: rotate · Right drag: pan · Wheel: zoom</span>
+            <div id="separator"></div>
+            <button type="button" id="layer_down">-</button>
+            <div id="layer_number"></div>
+            <button type="button" id="layer_up">+</button>
+        </div>
+        <div id="viewport"><canvas id="canvas3d"></canvas></div>
+        <div id="palette"></div>
+        <script type="module" src="js/main3d.mjs"></script>
+    </body>
+</html>
