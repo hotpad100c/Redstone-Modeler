@@ -208,9 +208,12 @@
             <section>
                 <h3 data-i18n="pack.step1">1. Stack packs</h3>
                 <div class="row">
-                    <label class="file_button"><span data-i18n="pack.add">Add pack (.zip / .rmpack)</span><input id="pack_file" type="file" multiple accept=".zip,.rmpack,.rmmodel,application/zip,application/octet-stream" /></label>
+                    <label class="file_button"><span data-i18n="pack.add">Add pack (.zip / .jar / .rmpack)</span><input id="pack_file" type="file" multiple accept=".zip,.jar,.rmpack,.rmmodel,application/zip,application/java-archive,application/octet-stream" /></label>
                     <label class="file_button"><span data-i18n="pack.add_folder">Add folder</span><input id="pack_folder" type="file" webkitdirectory /></label>
+                    <select id="vanilla_version"><option value="latest" data-i18n="pack.vanilla_latest">Latest release</option></select>
+                    <button type="button" id="vanilla_button" data-i18n="pack.vanilla">Add Minecraft (official)</button>
                 </div>
+                <p class="note" data-i18n="pack.vanilla_hint">Downloads the game's own files from Mojang to this browser when you click, nothing goes through us, and they are only used here. It is about 30 MB.</p>
                 <ol id="source_list"></ol>
                 <div class="row">
                     <input id="pack_name" type="text" data-i18n-placeholder="pack.name_placeholder" placeholder="Name of the compiled pack" />

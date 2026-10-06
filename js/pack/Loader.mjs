@@ -31,6 +31,9 @@ export async function compile(packs, { name, extra_properties = {}, fallback, pr
     const stack = new PackStack(packs);
     progress("compile.reading");
     const data = collect(stack, extra_properties, fallback);
+    if (Object.keys(data.index).length === 0) {
+        throw Object.assign(new Error("No blocks were found in these files"), { code: "no_assets" });
+    }
     const { atlas, png } = await build_atlas(
         stack,
         data.textures,

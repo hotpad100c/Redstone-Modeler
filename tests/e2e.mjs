@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { strToU8, zipSync } from "../lib/fflate.module.js";
 import { base_files, overlay_files, png, zip_of } from "./fixtures.mjs";
 
 // SITE_ROOT points at an assembled site (scripts/build-site.sh) to test what gets deployed
@@ -53,7 +54,7 @@ const problems = [];
 page.on("pageerror", e => problems.push(e.message));
 page.on("console", (m) => {
     if (m.type() === "error" && !m.text().includes("404")) {
-        problems.push(m.text());
+        problems.push(`${m.text()} ${m.location().url}`);
     }
 });
 
@@ -670,6 +671,125 @@ await step("mod assets: a picked assets folder and a deep zip are both found", a
     const quads = await page.evaluate(() => window.__rm.resources.pack.geometry("mymod:gizmo", {}).quads.length);
     assert.equal(quads, 6);
     await page.click("#pack_close");
+});
+
+/** A mod jar, or the game's: classes and other things next to the assets */
+function jar_bytes(files) {
+    return Buffer.from(zipSync({
+        "META-INF/MANIFEST.MF": strToU8("Manifest-Version: 1.0"),
+        "com/example/Mod.class": Uint8Array.from([0xCA, 0xFE, 0xBA, 0xBE]),
+        "data/example/recipes/x.json": strToU8("{}"),
+        ...Object.fromEntries(Object.entries(files).map(([path, value]) => [path, value instanceof Uint8Array ? [value, { level: 0 }] : strToU8(JSON.stringify(value))])),
+    }));
+}
+
+await step("a compiled pack is recognised by its content, even when it was renamed", async () => {
+    for (const name of ["Test stack.rmpack.zip", "renamed.bin", "Test stack (1).rmpack"]) {
+        const { fresh, other } = await fresh_page();
+        await other.click("#pack_button");
+        await other.setInputFiles("#pack_file", [{ name, mimeType: "application/zip", buffer: Buffer.from(rmpack_bytes) }]);
+        await other.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+        await other.waitForSelector("#library_list li .pack_label");
+        assert.equal(await other.locator("#source_list li:not(.note)").count(), 0, `${name} is not a source pack`);
+        assert.equal(await other.locator("#library_list li .pack_label").count(), 1);
+        if (!/\.rmpack$/.test(name)) {
+            assert.match(await other.textContent("#compile_status"), /compiled pack/);
+        }
+        // Use works from the library as well, after a reload
+        await other.reload();
+        await other.waitForFunction(() => window.__rm?.resources, null, { timeout: 15000 });
+        await fresh.close();
+    }
+});
+
+await step("files without blocks are refused, and nothing is saved", async () => {
+    const { fresh, other } = await fresh_page();
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "notes.zip", mimeType: "application/zip", buffer: Buffer.from(zip_of({ "readme.json": { hello: 1 } })) }]);
+    await other.waitForFunction(() => document.querySelectorAll("#source_list li:not(.note)").length === 1);
+    await other.click("#compile_button");
+    await other.waitForFunction(() => document.getElementById("compile_status").classList.contains("error"), null, { timeout: 15000 });
+    assert.match(await other.textContent("#compile_status"), /No blocks were found in notes/);
+    assert.equal(await other.locator("#library_list li .pack_label").count(), 0);
+    assert.equal(await other.evaluate(() => window.__rm.resources), null);
+    await fresh.close();
+});
+
+await step("a mod jar is read for its assets and compiles", async () => {
+    const { fresh, other } = await fresh_page();
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "mymod-1.0.jar", mimeType: "application/java-archive", buffer: jar_bytes(base_files()) }]);
+    await other.waitForFunction(() => document.querySelectorAll("#source_list li:not(.note)").length === 1);
+    assert.match(await other.textContent("#source_list li .pack_label"), /^mymod-1\.0 ·/);
+    await other.click("#compile_button");
+    await other.waitForFunction(() => document.querySelector("#compile_status").textContent.startsWith("Done"), null, { timeout: 30000 });
+    assert.ok((await other.$$eval(".block_item", items => items.map(i => i.dataset.name))).includes("minecraft:stone"));
+    await fresh.close();
+});
+
+/** Stands in for Mojang: the version list, a version, its client jar and the names of a language */
+async function install_mojang(context, { blocked = false } = {}) {
+    const jar = jar_bytes(base_files());
+    const { createHash } = await import("node:crypto");
+    const sha1 = bytes => createHash("sha1").update(bytes).digest("hex");
+    const zh = Buffer.from(JSON.stringify({ "block.minecraft.stone": "石头" }));
+    const headers = { "access-control-allow-origin": "*" };
+    const seen = [];
+    await context.route(/^https:\/\/(piston-meta|piston-data)\.mojang\.com\/|^https:\/\/resources\.download\.minecraft\.net\//, async (route) => {
+        const { href } = new URL(route.request().url());
+        seen.push(href);
+        if (blocked) {
+            return route.abort("failed");
+        }
+        const json = body => route.fulfill({ status: 200, headers, contentType: "application/json", body: JSON.stringify(body) });
+        if (href.endsWith("version_manifest_v2.json")) {
+            return json({ latest: { release: "1.21.9" }, versions: [{ id: "1.21.9", type: "release", url: "https://piston-meta.mojang.com/v1/packages/r.json" }] });
+        }
+        if (href.endsWith("/r.json")) {
+            return json({ downloads: { client: { url: "https://piston-data.mojang.com/v1/objects/a/client.jar", sha1: sha1(jar), size: jar.length } }, assetIndex: { url: "https://piston-meta.mojang.com/v1/packages/i/26.json" } });
+        }
+        if (href.endsWith("client.jar")) {
+            return route.fulfill({ status: 200, headers, body: jar });
+        }
+        if (href.endsWith("26.json")) {
+            return json({ objects: { "minecraft/lang/zh_cn.json": { hash: sha1(zh), size: zh.length } } });
+        }
+        return route.fulfill({ status: 200, headers, body: zh });
+    });
+    return seen;
+}
+
+await step("the game is fetched from Mojang, stacked at the bottom and compiled", async () => {
+    const { fresh, other } = await fresh_page();
+    const seen = await install_mojang(fresh);
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "overlay.zip", mimeType: "application/zip", buffer: Buffer.from(zip_of(overlay_files())) }]);
+    await other.waitForFunction(() => document.querySelectorAll("#source_list li:not(.note)").length === 1);
+    await other.click("#vanilla_button");
+    await other.waitForFunction(() => /was added/.test(document.getElementById("compile_status").textContent), null, { timeout: 30000 });
+    const labels = await other.$$eval("#source_list li .pack_label", items => items.map(i => i.textContent));
+    assert.equal(labels.length, 2);
+    assert.match(labels[0], /^overlay/);
+    assert.match(labels[1], /^Minecraft 1\.21\.9/, "the game is the bottom layer");
+    assert.ok(seen.some(url => url.endsWith("client.jar")) && seen.some(url => url.includes("resources.download.minecraft.net")));
+    await other.click("#compile_button");
+    await other.waitForFunction(() => document.querySelector("#compile_status").textContent.startsWith("Done"), null, { timeout: 30000 });
+    assert.equal(await other.evaluate(() => window.__rm.resources.pack.display_name("minecraft:stone", "zh_cn")), "石头");
+    await fresh.close();
+});
+
+await step("when Mojang cannot be reached the way out is explained", async () => {
+    const before = problems.length;
+    const { fresh, other } = await fresh_page();
+    await install_mojang(fresh, { blocked: true });
+    await other.click("#pack_button");
+    await other.click("#vanilla_button");
+    await other.waitForFunction(() => document.getElementById("compile_status").classList.contains("error"), null, { timeout: 30000 });
+    assert.match(await other.textContent("#compile_status"), /Could not get Minecraft from Mojang.*client jar.*Add pack/);
+    assert.equal(await other.locator("#source_list li:not(.note)").count(), 0);
+    assert.equal(await other.locator("#vanilla_button").isDisabled(), false);
+    await fresh.close();
+    problems.length = before;
 });
 
 await step("a damaged saved pack is reported on the page and the interface still works", async () => {
