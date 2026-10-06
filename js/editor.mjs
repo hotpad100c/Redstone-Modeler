@@ -1,3 +1,4 @@
+import * as i18n from "./i18n/i18n.mjs";
 import { World } from "./model/World.mjs";
 import * as Settings from "./model/Settings.mjs";
 import { decode, deserialize, encode, serialize } from "./model/Save.mjs";
@@ -14,7 +15,10 @@ import { StateBar } from "./ui/StateBar.mjs";
 const AUTOSAVE_KEY = "redstone-modeler.autosave";
 const $ = id => document.getElementById(id);
 
+const { t } = i18n;
+
 const settings = Settings.load();
+i18n.set_language(i18n.resolve_language(settings.language));
 const world = new World(settings.size);
 const scene = new Scene($("canvas3d"), world);
 const settings_panel = new SettingsPanel({ dialog: $("settings_dialog"), settings, world, scene });
@@ -50,15 +54,63 @@ const state_bar = new StateBar({
 }, picker, icons, () => resources);
 picker.on_change = () => state_bar.refresh();
 
+settings_panel.on_language_change = () => picker.set_name_language(settings_panel.effective_language());
+settings_panel.on_ui_language_change = () => {
+    picker.refresh_language();
+    state_bar.refresh_language();
+    pack_panel.rerender();
+    settings_panel.refresh_language();
+    update_summary();
+    show_build();
+    show_pack_problem(problem);
+};
+
+// What the top bar says about the pack. Elements with data-i18n are translated by the page, so the
+// attribute is only there while the text is a translatable one.
+function update_summary() {
+    const summary = $("pack_summary");
+    if (resources) {
+        summary.removeAttribute("data-i18n");
+        summary.textContent = resources.pack.name;
+    }
+    else {
+        summary.dataset.i18n = "top.no_pack";
+        summary.textContent = t("top.no_pack");
+    }
+}
+
+// The name of the held block above the hotbar, shown for a moment when a block is picked
+const held_name = $("held_name");
+let held_timer = null;
+picker.on_select = (block) => {
+    const title = document.createElement("div");
+    title.className = "held_title";
+    title.textContent = picker.label_of(block.name);
+    held_name.replaceChildren(title);
+    if (!block.name.startsWith("minecraft:")) {
+        const id = document.createElement("div");
+        id.className = "held_id";
+        id.textContent = block.name;
+        held_name.appendChild(id);
+    }
+    held_name.classList.add("show");
+    clearTimeout(held_timer);
+    held_timer = setTimeout(() => held_name.classList.remove("show"), 1400);
+};
+
 async function use_pack(bytes) {
     const { pack, atlas_image } = await load_compiled(bytes);
     const previous = resources;
     resources = new Resources(pack, atlas_image);
     scene.set_resources(resources);
     icons.set_resources(resources);
+    settings_panel.set_pack(pack);
+    picker.name_language = settings_panel.effective_language();
     picker.set_pack(pack);
     previous?.dispose();
-    $("pack_summary").textContent = pack.name;
+    update_summary();
+    problem = null;
+    $("onboarding_note").hidden = true;
     $("onboarding").hidden = true;
 }
 
@@ -72,14 +124,20 @@ pack_panel.ready = Promise.all([
     pack_panel.fallback = fallback;
 });
 
-function show_pack_problem(message) {
-    $("pack_summary").textContent = "no pack loaded";
+/** Why the saved pack could not be loaded, shown in the introduction */
+let problem = null;
+function show_pack_problem(reason) {
+    problem = reason;
+    update_summary();
     const note = $("onboarding_note");
-    note.textContent = message;
-    note.hidden = false;
+    note.hidden = reason === null;
+    note.textContent = reason === null ? "" : t("onboarding.load_failed", { reason });
 }
 const build = document.querySelector("meta[name=build]")?.content;
-$("build_id").textContent = build ? `build ${build}` : "";
+function show_build() {
+    $("build_id").textContent = build ? t("top.build", { id: build }) : "";
+}
+show_build();
 
 // Flashes a message on a button for a second
 const flashes = new Map();
@@ -110,7 +168,7 @@ let clear_timer = null;
 $("clear_button").addEventListener("click", () => {
     const button = $("clear_button");
     if (clear_timer === null) {
-        button.textContent = "Sure? Click again";
+        button.textContent = t("top.clear_confirm");
         button.classList.add("error");
         clear_timer = setTimeout(reset_clear_button, 3000);
     }
@@ -122,7 +180,7 @@ $("clear_button").addEventListener("click", () => {
 function reset_clear_button() {
     clearTimeout(clear_timer);
     clear_timer = null;
-    $("clear_button").textContent = "Clear";
+    $("clear_button").textContent = t("top.clear");
     $("clear_button").classList.remove("error");
 }
 
@@ -194,10 +252,10 @@ $("save_button").addEventListener("click", async () => {
         // eslint-disable-next-line no-undef
         const code = await encode(serialize(world, resources ? [resources.pack.name] : []), LZMA);
         await navigator.clipboard.writeText(code);
-        flash($("save_button"), "Code copied");
+        flash($("save_button"), t("top.code_copied"));
     }
     catch (e) {
-        flash($("save_button"), "Error", true);
+        flash($("save_button"), t("top.error"), true);
         console.error(e);
     }
 });
@@ -208,10 +266,10 @@ $("load_button").addEventListener("click", async () => {
         const dropped = deserialize(await decode($("load_input").value, LZMA), world);
         scene.apply_world_size();
         settings_panel.sync_size();
-        flash($("load_button"), dropped ? `Loaded, ${dropped} outside` : "Loaded");
+        flash($("load_button"), dropped ? t("top.loaded_outside", { count: dropped }) : t("top.loaded"));
     }
     catch (e) {
-        flash($("load_button"), "Invalid code", true);
+        flash($("load_button"), t("top.invalid_code"), true);
         console.error(e);
     }
 });
@@ -221,17 +279,17 @@ $("image_button").addEventListener("click", async () => {
         const blob = await scene.to_blob();
         try {
             await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-            flash($("image_button"), "Copied");
+            flash($("image_button"), t("top.copied"));
         }
         catch {
             const url = URL.createObjectURL(blob);
             Object.assign(document.createElement("a"), { href: url, download: "model.png" }).click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
-            flash($("image_button"), "Downloaded");
+            flash($("image_button"), t("top.downloaded"));
         }
     }
     catch (e) {
-        flash($("image_button"), "Error", true);
+        flash($("image_button"), t("top.error"), true);
         console.error(e);
     }
 });
@@ -286,5 +344,5 @@ try {
 }
 catch (e) {
     console.warn("Could not load the saved resource pack", e);
-    show_pack_problem(`The resource pack saved in this browser could not be loaded (${e?.message ?? e}). Import it again.`);
+    show_pack_problem(String(e?.message ?? e));
 }

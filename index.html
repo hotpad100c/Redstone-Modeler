@@ -23,8 +23,11 @@
                         (document.body || document.documentElement).appendChild(banner);
                     }
                     var build = (document.querySelector("meta[name=build]") || {}).content;
-                    var hint = /did not start|could not start/.test(messages.join(" "))
-                        ? "\n\nIf the site was updated a moment ago your browser may have kept old files. Reload without the cache (Safari: Cmd+Option+E, then reload; Chrome and Firefox: Ctrl+Shift+R or Cmd+Shift+R)."
+                    var zh = /^zh/i.test(navigator.language || "");
+                    var hint = /did not start|could not start|没有启动|无法启动/.test(messages.join(" "))
+                        ? (zh
+                            ? "\n\n如果网站刚更新过，浏览器可能保留了旧文件。请不带缓存重新加载（Safari：Cmd+Option+E 后重新加载；Chrome 和 Firefox：Ctrl+Shift+R 或 Cmd+Shift+R）。"
+                            : "\n\nIf the site was updated a moment ago your browser may have kept old files. Reload without the cache (Safari: Cmd+Option+E, then reload; Chrome and Firefox: Ctrl+Shift+R or Cmd+Shift+R).")
                         : "";
                     banner.textContent = messages.join("\n") + hint + "\n\n[build " + build + " | WebGL2: " + webgl2() + " | " + navigator.userAgent + "]";
                     var close = document.createElement("button");
@@ -50,7 +53,10 @@
                 });
                 setTimeout(function () {
                     if (!window.__rm) {
-                        note(messages.length ? "The editor did not start." : "The editor did not start. This browser may be too old: Safari 15 or newer is needed.");
+                        var chinese = /^zh/i.test(navigator.language || "");
+                        note(messages.length
+                            ? (chinese ? "编辑器没有启动。" : "The editor did not start.")
+                            : (chinese ? "编辑器没有启动。这个浏览器可能太旧了：需要 Safari 15 或更新版本。" : "The editor did not start. This browser may be too old: Safari 15 or newer is needed."));
                     }
                 }, 6000);
             })();
@@ -59,39 +65,39 @@
     </head>
     <body>
         <div id="top_bar">
-            <button type="button" id="pack_button">Resource packs</button>
-            <span id="pack_summary" class="note">none loaded</span>
-            <button type="button" id="erase_button" title="Eraser: left click removes blocks (E)">Eraser</button>
-            <button type="button" id="clear_button" title="Remove every block">Clear</button>
-            <button type="button" id="settings_button">Settings</button>
-            <button type="button" id="image_button">Copy image</button>
-            <button type="button" id="save_button">Save</button>
-            <input type="text" id="load_input" size="8" placeholder="code" />
-            <button type="button" id="load_button">Load</button>
+            <button type="button" id="pack_button" data-i18n="top.packs">Resource packs</button>
+            <span id="pack_summary" class="note" data-i18n="top.no_pack">none loaded</span>
+            <button type="button" id="erase_button" data-i18n="top.eraser" data-i18n-title="top.eraser_title" title="Eraser: left click removes blocks (E)">Eraser</button>
+            <button type="button" id="clear_button" data-i18n="top.clear" data-i18n-title="top.clear_title" title="Remove every block">Clear</button>
+            <button type="button" id="settings_button" data-i18n="top.settings">Settings</button>
+            <button type="button" id="image_button" data-i18n="top.copy_image">Copy image</button>
+            <button type="button" id="save_button" data-i18n="top.save">Save</button>
+            <input type="text" id="load_input" size="8" data-i18n-placeholder="top.code_placeholder" placeholder="code" />
+            <button type="button" id="load_button" data-i18n="top.load">Load</button>
             <div id="separator"></div>
             <div id="plane_controls" hidden>
-                <span class="note">Plane</span>
-                <button type="button" id="layer_down" title="Move plane back ([)">-</button>
+                <span class="note" data-i18n="top.plane">Plane</span>
+                <button type="button" id="layer_down" data-i18n-title="top.plane_back_title" title="Move plane back ([)">-</button>
                 <div id="layer_number"></div>
-                <button type="button" id="layer_up" title="Move plane forward (])">+</button>
+                <button type="button" id="layer_up" data-i18n-title="top.plane_forward_title" title="Move plane forward (])">+</button>
             </div>
         </div>
         <div id="main">
             <div id="viewport">
                 <canvas id="canvas3d"></canvas>
-                <canvas id="gizmo" title="Click an axis to look along it, the centre for the default view"></canvas>
+                <canvas id="gizmo" data-i18n-title="view.gizmo_title" title="Click an axis to look along it, the centre for the default view"></canvas>
                 <div id="onboarding">
-                    <h2>Import a resource pack to start</h2>
+                    <h2 data-i18n="onboarding.title">Import a resource pack to start</h2>
                     <p id="onboarding_note" class="error" hidden></p>
-                    <p>Blocks, models and block states are read from the resource packs you provide. Nothing is uploaded; the compiled result is cached in this browser.</p>
-                    <button type="button" id="onboarding_button">Import resource packs</button>
+                    <p data-i18n="onboarding.text">Blocks, models and block states are read from the resource packs you provide. Nothing is uploaded; the compiled result is cached in this browser.</p>
+                    <button type="button" id="onboarding_button" data-i18n="onboarding.button">Import resource packs</button>
                 </div>
                 <div id="build_id" class="note"></div>
-                <div id="help">Click: place · Right click or Eraser (E): remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · Axis ball: 2D views, then [ ] moves the plane</div>
+                <div id="help" data-i18n="help.text">Click: place · Right click or Eraser (E): remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · Axis ball: 2D views, then [ ] moves the plane</div>
             </div>
             <div id="sidebar">
-                <input type="search" id="block_search" placeholder="Search blocks" />
-                <select id="block_namespace" title="Only show blocks of one namespace (mod)" hidden></select>
+                <input type="search" id="block_search" data-i18n-placeholder="sidebar.search" placeholder="Search blocks" />
+                <select id="block_namespace" data-i18n-title="sidebar.namespace_title" title="Only show blocks of one namespace (mod)" hidden></select>
                 <div id="block_list"></div>
                 <div id="block_states"></div>
             </div>
@@ -99,65 +105,76 @@
         <div id="state_bar" hidden>
             <div class="row">
                 <div id="state_filters"></div>
-                <label class="note"><input type="checkbox" id="state_dedupe" /> Hide look-alikes</label>
+                <label class="note"><input type="checkbox" id="state_dedupe" /> <span data-i18n="state.dedupe">Hide look-alikes</span></label>
                 <span id="state_note" class="note"></span>
             </div>
             <div id="state_grid"></div>
         </div>
         <div id="hotbar_row">
-            <button type="button" id="state_toggle" title="Show every state combination of the held block">States ▲</button>
+            <div id="held_name" role="status" aria-live="polite"></div>
+            <button type="button" id="state_toggle" data-i18n-title="state.toggle_title" title="Show every state combination of the held block">States ▲</button>
             <div id="hotbar"></div>
         </div>
 
         <dialog id="settings_dialog">
-            <h2>Settings</h2>
+            <h2 data-i18n="settings.title">Settings</h2>
             <section>
-                <h3>Model space</h3>
-                <div class="row">
-                    <label>X <input id="size_x" type="number" inputmode="numeric" /></label>
-                    <label>Y (height) <input id="size_y" type="number" inputmode="numeric" /></label>
-                    <label>Z <input id="size_z" type="number" inputmode="numeric" /></label>
-                    <button type="button" id="size_apply">Apply</button>
-                </div>
-                <div id="size_note" class="note"></div>
-                <p class="note">1 to 64 blocks per side. Blocks outside a smaller space are removed. Very large spaces can be slow.</p>
+                <h3 data-i18n="settings.language_title">Language</h3>
+                <div class="row"><label><span data-i18n="settings.ui_language">Interface</span> <select id="ui_language"></select></label></div>
             </section>
             <section>
-                <h3>Colours</h3>
-                <div class="row"><label>Background <input id="bg_color" type="color" /></label></div>
+                <h3 data-i18n="settings.names_title">Block names</h3>
+                <div class="row"><label><span data-i18n="settings.names_label">Show and search names in</span> <select id="search_language"></select></label></div>
+                <p class="note" data-i18n="settings.names_help">English names and block ids are always searched too, so "stone", "Stone" and the name in this language all find the block. The names come from the language files of your resource packs.</p>
+                <div id="language_note" class="note"></div>
+            </section>
+            <section>
+                <h3 data-i18n="settings.space">Model space</h3>
                 <div class="row">
-                    <label>2D plane <input id="plane_color" type="color" /></label>
-                    <label>Opacity <input id="plane_opacity" type="range" min="0" max="1" step="0.01" /> <span id="plane_opacity_value"></span></label>
+                    <label>X <input id="size_x" type="number" inputmode="numeric" /></label>
+                    <label><span data-i18n="settings.size_y">Y (height)</span> <input id="size_y" type="number" inputmode="numeric" /></label>
+                    <label>Z <input id="size_z" type="number" inputmode="numeric" /></label>
+                    <button type="button" id="size_apply" data-i18n="settings.apply">Apply</button>
+                </div>
+                <div id="size_note" class="note"></div>
+                <p class="note" data-i18n="settings.size_help">1 to 64 blocks per side. Blocks outside a smaller space are removed. Very large spaces can be slow.</p>
+            </section>
+            <section>
+                <h3 data-i18n="settings.colours">Colours</h3>
+                <div class="row"><label><span data-i18n="settings.background">Background</span> <input id="bg_color" type="color" /></label></div>
+                <div class="row">
+                    <label><span data-i18n="settings.plane_colour">2D plane</span> <input id="plane_color" type="color" /></label>
+                    <label><span data-i18n="settings.opacity">Opacity</span> <input id="plane_opacity" type="range" min="0" max="1" step="0.01" /> <span id="plane_opacity_value"></span></label>
                 </div>
             </section>
             <div class="row">
-                <button type="button" id="settings_reset">Reset</button>
-                <button type="button" id="settings_close">Close</button>
+                <button type="button" id="settings_reset" data-i18n="settings.reset">Reset</button>
+                <button type="button" id="settings_close" data-i18n="settings.close">Close</button>
             </div>
         </dialog>
 
         <dialog id="pack_dialog">
-            <h2>Resource packs</h2>
-            <p class="note">Everything stays in your browser. Packs higher in the list override packs below them, like in Minecraft, so put a default or vanilla pack at the bottom and special packs (for example redstone visualisation) above it.</p>
+            <h2 data-i18n="pack.title">Resource packs</h2>
+            <p class="note" data-i18n="pack.intro">Everything stays in your browser. Packs higher in the list override packs below them, like in Minecraft, so put a default or vanilla pack at the bottom and special packs (for example redstone visualisation) above it.</p>
             <section>
-                <h3>1. Stack packs</h3>
+                <h3 data-i18n="pack.step1">1. Stack packs</h3>
                 <div class="row">
-                    <label class="file_button">Add pack (.zip / .rmpack)<input id="pack_file" type="file" multiple accept=".zip,.rmpack,application/zip,application/octet-stream" /></label>
-                    <label class="file_button">Add folder<input id="pack_folder" type="file" webkitdirectory /></label>
+                    <label class="file_button"><span data-i18n="pack.add">Add pack (.zip / .rmpack)</span><input id="pack_file" type="file" multiple accept=".zip,.rmpack,application/zip,application/octet-stream" /></label>
+                    <label class="file_button"><span data-i18n="pack.add_folder">Add folder</span><input id="pack_folder" type="file" webkitdirectory /></label>
                 </div>
                 <ol id="source_list"></ol>
                 <div class="row">
-                    <input id="pack_name" type="text" placeholder="Name of the compiled pack" />
-                    <button type="button" id="compile_button">Compile and use</button>
+                    <input id="pack_name" type="text" data-i18n-placeholder="pack.name_placeholder" placeholder="Name of the compiled pack" />
+                    <button type="button" id="compile_button" data-i18n="pack.compile">Compile and use</button>
                 </div>
                 <div id="compile_status"></div>
             </section>
             <section>
-                <h3>2. Saved in this browser</h3>
+                <h3 data-i18n="pack.step2">2. Saved in this browser</h3>
                 <ul id="library_list"></ul>
                 <div id="storage_note" class="note"></div>
             </section>
-            <div class="row"><button type="button" id="pack_close">Close</button></div>
+            <div class="row"><button type="button" id="pack_close" data-i18n="pack.close">Close</button></div>
         </dialog>
         <script type="module" src="js/app.mjs"></script>
     </body>

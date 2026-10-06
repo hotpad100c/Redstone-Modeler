@@ -2,6 +2,15 @@ import { default_state, select_models_layered } from "./BlockStates.mjs";
 import { MISSING, MISSING_MODEL, build_block } from "../render/BlockMesher.mjs";
 import { normalize_id } from "./PackStack.mjs";
 
+/**
+ * `oak_slab` to `Oak Slab`: the name used when no language file knows a block.
+ * @param {string} id
+ */
+export function pretty_name(id) {
+    const path = id.slice(id.indexOf(":") + 1);
+    return path.split("/").pop().split("_").filter(Boolean).map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
+}
+
 const FULL_CUBE_FACES = ["down", "up", "north", "south", "west", "east"];
 
 /**
@@ -13,13 +22,53 @@ export class CompiledPack {
      * @param {object} data Contents of `data.json`
      * @param {object} [extras]
      * @param {object} [extras.colormaps] Decoded colour maps, see Tint.mjs
+     * @param {Record<string, Uint8Array>} [extras.lang] JSON bytes of the block names of each language
      */
     constructor(data, extras = {}) {
         this.data = data;
         this.name = data.name ?? "Resource pack";
         this.colormaps = extras.colormaps ?? {};
+        this.lang_bytes = extras.lang ?? {};
+        this.lang_cache = new Map();
         this.names = Object.keys(data.index).sort();
         this.cache = new Map();
+    }
+
+    /** Languages the block names are available in: `{code, name, region}`. Empty for packs compiled before names were read. */
+    get languages() {
+        return this.data.languages ?? [];
+    }
+
+    _names(code) {
+        if (!this.lang_cache.has(code)) {
+            let names = null;
+            const bytes = this.lang_bytes[code];
+            if (bytes) {
+                try {
+                    names = JSON.parse(new TextDecoder().decode(bytes));
+                }
+                catch {
+                    names = null;
+                }
+            }
+            this.lang_cache.set(code, names);
+        }
+        return this.lang_cache.get(code);
+    }
+
+    /**
+     * Name of a block in a language, else its English name, else a name made up from the id.
+     * @param {string} id
+     * @param {string} [code] Language code such as `zh_cn`; empty for English
+     */
+    display_name(id, code = "") {
+        for (const language of [code, "en_us"]) {
+            const name = language ? this._names(language)?.[id] : undefined;
+            if (name) {
+                return name;
+            }
+        }
+        return pretty_name(id);
     }
 
     properties(name) {

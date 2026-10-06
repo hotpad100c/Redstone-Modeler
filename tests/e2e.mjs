@@ -47,7 +47,7 @@ const engine = process.env.BROWSER ?? "chromium";
 const browser = await playwright[engine].launch(engine === "chromium"
     ? { executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium", args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader"] }
     : {});
-const context = await browser.newContext({ viewport: { width: 1100, height: 760 }, permissions: ["clipboard-read", "clipboard-write"] });
+const context = await browser.newContext({ locale: "en-US", viewport: { width: 1100, height: 760 }, permissions: ["clipboard-read", "clipboard-write"] });
 const page = await context.newPage();
 const problems = [];
 page.on("pageerror", e => problems.push(e.message));
@@ -120,6 +120,133 @@ await step("block list and states come from the stacked packs", async () => {
     const props = await page.$$eval("#block_states select", s => s.map(x => x.dataset.property));
     assert.deepEqual(props.sort(), ["facing", "powered"]);
     await page.fill("#block_search", "");
+});
+
+await step("block names: shown and searched in the chosen language and in English", async () => {
+    const visible_names = () => page.$$eval(".block_item:not([hidden])", items => items.map(i => i.dataset.name));
+    // Chinese is the default language for names
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:stone\"] .block_name").textContent(), "石头");
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:stone\"] .block_id").textContent(), "minecraft:stone");
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:observer\"] .block_name").textContent(), "侦测器（红石版）", "the pack on top renames it");
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:chest\"] .block_name").textContent(), "Chest", "no Chinese name, so English");
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:oak_stairs\"]").count(), 0);
+    for (const [query, expected] of [["石头", ["minecraft:stone"]], ["stone", ["minecraft:redstone_lamp", "minecraft:stone"]], ["Stone", ["minecraft:redstone_lamp", "minecraft:stone"]], ["stone block", []], ["侦测", ["minecraft:observer"]], ["红石灯", ["minecraft:redstone_lamp"]], ["oak slab", ["minecraft:oak_slab"]], ["橡木", ["minecraft:oak_slab"]]]) {
+        await page.fill("#block_search", query);
+        assert.deepEqual(await visible_names(), expected, query);
+    }
+    await page.fill("#block_search", "");
+    // Switch to English only: the Chinese names no longer find anything
+    await page.click("#settings_button");
+    assert.deepEqual(await page.$$eval("#search_language option", o => o.map(x => x.value)), ["", "de_de", "zh_cn"], "English is not listed twice");
+    assert.equal(await page.locator("#search_language option[value=zh_cn]").textContent(), "简体中文 (中国)");
+    assert.equal(await page.inputValue("#search_language"), "zh_cn");
+    await page.selectOption("#search_language", "");
+    await page.click("#settings_close");
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:stone\"] .block_name").textContent(), "Stone");
+    await page.fill("#block_search", "石头");
+    assert.deepEqual(await visible_names(), []);
+    await page.fill("#block_search", "stone");
+    assert.deepEqual(await visible_names(), ["minecraft:redstone_lamp", "minecraft:stone"]);
+    // Another language from the pack
+    await page.click("#settings_button");
+    await page.selectOption("#search_language", "de_de");
+    await page.click("#settings_close");
+    await page.fill("#block_search", "stein");
+    assert.deepEqual(await visible_names(), ["minecraft:stone"]);
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:stone\"] .block_name").textContent(), "Stein");
+    // The choice is remembered
+    await page.reload();
+    await page.waitForFunction(() => window.__rm?.resources, null, { timeout: 15000 });
+    assert.equal(await page.locator(".block_item[data-name=\"minecraft:stone\"] .block_name").textContent(), "Stein");
+    await page.click("#settings_button");
+    await page.selectOption("#search_language", "zh_cn");
+    await page.click("#settings_close");
+    await page.fill("#block_search", "");
+});
+
+await step("the name of the picked block is shown above the hotbar and fades out", async () => {
+    const shown = () => page.evaluate(() => document.getElementById("held_name").classList.contains("show"));
+    const opacity = () => page.evaluate(() => Number(getComputedStyle(document.getElementById("held_name")).opacity));
+    await page.click(".block_item[data-name=\"minecraft:stone\"]");
+    assert.equal(await shown(), true);
+    assert.equal(await page.textContent("#held_name"), "石头");
+    assert.equal(await opacity(), 1);
+    await page.waitForFunction(() => !document.getElementById("held_name").classList.contains("show"), null, { timeout: 4000 });
+    await page.waitForFunction(() => Number(getComputedStyle(document.getElementById("held_name")).opacity) === 0, null, { timeout: 4000 });
+    // Changing only the state does not bring it back
+    await page.evaluate(() => window.__rm.picker.select("minecraft:observer"));
+    await page.waitForFunction(() => !document.getElementById("held_name").classList.contains("show"), null, { timeout: 4000 });
+    await page.selectOption("#block_states select[data-property=powered]", "true");
+    assert.equal(await shown(), false);
+    // Switching to a slot with a block does, an empty slot does not
+    await page.evaluate(() => window.__rm.picker.set_slot(1));
+    assert.equal(await shown(), false);
+    await page.evaluate(() => window.__rm.picker.select("minecraft:glass"));
+    await page.evaluate(() => window.__rm.picker.set_slot(0));
+    assert.equal(await shown(), true);
+    assert.equal(await page.textContent("#held_name"), "侦测器（红石版）");
+    // Picking with Alt+click does too (it goes through the same path)
+    await page.evaluate(() => window.__rm.picker.set_slot(0));
+});
+
+await step("the interface can be switched to Chinese and back", async () => {
+    assert.equal(await page.textContent("#save_button"), "Save");
+    assert.equal(await page.evaluate(() => document.documentElement.lang), "en");
+    await page.click("#settings_button");
+    assert.deepEqual(await page.$$eval("#ui_language option", o => o.map(x => x.value)), ["auto", "en", "zh-CN"]);
+    await page.selectOption("#ui_language", "zh-CN");
+    assert.equal(await page.textContent("#save_button"), "保存");
+    assert.equal(await page.textContent("#pack_button"), "资源包");
+    assert.equal(await page.getAttribute("#block_search", "placeholder"), "搜索方块");
+    assert.equal(await page.getAttribute("#erase_button", "title"), "橡皮擦：左键删除方块（E）");
+    assert.equal(await page.textContent("#settings_dialog h2"), "设置");
+    assert.equal(await page.textContent("#state_toggle"), "状态 ▲");
+    assert.equal(await page.evaluate(() => document.documentElement.lang), "zh-CN");
+    assert.equal(await page.textContent("#pack_summary"), "Test stack", "the name of the pack is not translated");
+    assert.equal(await page.locator("#ui_language option[value=auto]").textContent(), "自动");
+    assert.equal(await page.locator("#search_language option[value='']").textContent(), "仅英文");
+    // Parts drawn by code change too
+    await page.click("#settings_close");
+    await page.evaluate(() => window.__rm.picker.select("minecraft:observer", { facing: "east", powered: "true" }));
+    assert.equal(await page.locator("#block_states .state_row span").first().textContent(), "朝向");
+    assert.equal(await page.inputValue("#block_states select[data-property=powered]"), "true");
+    assert.equal(await page.locator("#block_states select[data-property=powered] option[value=true]").textContent(), "是");
+    await page.click("#state_toggle");
+    await page.waitForFunction(() => document.querySelectorAll(".state_tile").length === 12);
+    assert.equal(await page.textContent("#state_toggle"), "状态 ▼");
+    assert.equal(await page.locator(".state_tile.selected").getAttribute("title"), "朝向=东, 通电=是 (facing=east, powered=true)");
+    assert.match(await page.textContent("#state_note"), /^12 种组合中的 12 种/);
+    await page.click("#state_toggle");
+    // Remembered after a reload
+    await page.reload();
+    await page.waitForFunction(() => window.__rm?.resources, null, { timeout: 15000 });
+    assert.equal(await page.textContent("#save_button"), "保存");
+    assert.match(await page.textContent("#build_id"), /^(构建 |$)/);
+    // The confirmation of Clear is translated as well
+    await page.click("#clear_button");
+    assert.equal(await page.textContent("#clear_button"), "确定吗？再点一次");
+    await page.waitForFunction(() => document.getElementById("clear_button").textContent === "清空", null, { timeout: 5000 });
+    // Back to the language of the browser
+    await page.click("#settings_button");
+    await page.selectOption("#ui_language", "auto");
+    assert.equal(await page.textContent("#save_button"), "Save");
+    assert.equal(await page.textContent("#settings_dialog h2"), "Settings");
+    await page.click("#settings_close");
+});
+
+await step("the interface starts in Chinese in a Chinese browser", async () => {
+    const chinese = await browser.newContext({ locale: "zh-CN" });
+    const other = await chinese.newPage();
+    await other.goto(url);
+    await other.waitForFunction(() => window.__rm);
+    assert.equal(await other.textContent("#pack_button"), "资源包");
+    assert.equal(await other.textContent("#onboarding h2"), "导入资源包以开始");
+    assert.equal(await other.textContent("#pack_summary"), "未加载");
+    assert.equal(await other.evaluate(() => document.documentElement.lang), "zh-CN");
+    await other.click("#pack_button");
+    assert.equal(await other.textContent("#pack_dialog h2"), "资源包");
+    assert.equal(await other.textContent("#source_list li"), "还没有添加资源包。可以把 .zip 文件拖到这里。");
+    await chinese.close();
 });
 
 await step("entity blocks get the bundled fallback model", async () => {
@@ -480,6 +607,10 @@ await step("mod assets: a picked assets folder and a deep zip are both found", a
             elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: Object.fromEntries(["down", "up", "north", "south", "west", "east"].map(d => [d, { texture: "#all" }])) }],
         },
         "assets/mymod/textures/block/gizmo.png": png(16, 16, [10, 200, 120]),
+        "assets/mymod/lang/en_us.json": { "language.name": "English", "block.mymod.gizmo": "Gizmo" },
+        "assets/mymod/lang/zh_cn.json": { "language.name": "简体中文", "block.mymod.gizmo": "小装置" },
+        "assets/othermod/lang/en_us.json": { "block.othermod.gizmo": "Other Gizmo" },
+        "assets/othermod/lang/zh_cn.json": { "block.othermod.gizmo": "另一个装置" },
         // A second namespace next to the first, like assets/create next to assets/minecraft
         "assets/othermod/blockstates/gizmo.json": { variants: { "": { model: "othermod:block/gizmo" } } },
         "assets/othermod/models/block/gizmo.json": {
@@ -509,6 +640,14 @@ await step("mod assets: a picked assets folder and a deep zip are both found", a
     // Same short name in two namespaces gives two list entries, and the namespace filter separates them
     await page.click("#pack_close");
     assert.deepEqual(await page.$$eval("#block_namespace option", o => o.map(x => x.value)), ["", "mymod", "othermod"]);
+    // Names of the two namespaces, in Chinese and English
+    assert.equal(await page.locator(".block_item[data-name=\"mymod:gizmo\"] .block_name").textContent(), "小装置");
+    assert.equal(await page.locator(".block_item[data-name=\"othermod:gizmo\"] .block_name").textContent(), "另一个装置");
+    await page.fill("#block_search", "装置");
+    assert.equal(await page.locator(".block_item:visible").count(), 2);
+    await page.fill("#block_search", "other gizmo");
+    assert.equal(await page.locator(".block_item:visible").count(), 1);
+    await page.fill("#block_search", "");
     assert.equal(await page.locator(".block_item:visible").count(), 2);
     await page.selectOption("#block_namespace", "othermod");
     assert.equal(await page.locator(".block_item:visible").count(), 1);

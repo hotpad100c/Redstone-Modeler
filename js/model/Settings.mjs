@@ -5,9 +5,15 @@ export const DEFAULTS = Object.freeze({
     background: "#404040",
     plane_color: "#4488ff",
     plane_opacity: 0.12,
+    // Language of the interface: "auto" follows the browser, otherwise a code of js/i18n
+    language: "auto",
+    // Language of the block names that are shown and searched in addition to English; "" is English only
+    search_language: "zh_cn",
 });
 
 const STORAGE_KEY = "redstone-modeler.settings";
+const INTERFACE_LANGUAGE = /^(auto|[A-Za-z]{2,3}(-[A-Za-z0-9]+)*)$/;
+const LANGUAGE_CODE = /^[a-z0-9_]{2,12}$/;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /**
@@ -41,6 +47,11 @@ export function normalize(raw) {
         plane_opacity: Number.isFinite(opacity) && input.plane_opacity !== null && input.plane_opacity !== ""
             ? Math.min(1, Math.max(0, opacity))
             : DEFAULTS.plane_opacity,
+        language: typeof input.language === "string" && INTERFACE_LANGUAGE.test(input.language) ? input.language : DEFAULTS.language,
+        search_language: typeof input.search_language === "string"
+        && (input.search_language === "" || LANGUAGE_CODE.test(input.search_language))
+            ? input.search_language
+            : DEFAULTS.search_language,
     };
 }
 

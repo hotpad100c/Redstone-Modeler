@@ -1,4 +1,8 @@
+import * as i18n from "../i18n/i18n.mjs";
+import { property_label, state_label, value_label } from "../i18n/properties.mjs";
 import { enumerate_states, state_count } from "../pack/BlockStates.mjs";
+
+const { t } = i18n;
 
 const LIMIT = 5000;
 
@@ -50,6 +54,12 @@ export class StateBar {
         this.set_open(false);
     }
 
+    /** Redraws what contains interface text, after the language of the interface changed. */
+    refresh_language() {
+        this.block_name = null;
+        this.set_open(this.open);
+    }
+
     get open() {
         return !this.bar.hidden;
     }
@@ -57,7 +67,7 @@ export class StateBar {
     set_open(open) {
         this.bar.hidden = !open;
         this.toggle.classList.toggle("selected", open);
-        this.toggle.textContent = open ? "States ▼" : "States ▲";
+        this.toggle.textContent = open ? t("state.toggle_open") : t("state.toggle_closed");
         if (open) {
             this.refresh();
         }
@@ -104,13 +114,13 @@ export class StateBar {
         for (const [prop, values] of Object.entries(properties)) {
             const label = document.createElement("label");
             const text = document.createElement("span");
-            text.textContent = prop;
+            text.textContent = property_label(prop, i18n.language());
             const select = document.createElement("select");
             select.dataset.property = prop;
             for (const value of ["", ...values]) {
                 const option = document.createElement("option");
                 option.value = value;
-                option.textContent = value === "" ? "any" : value;
+                option.textContent = value === "" ? t("state.any") : value_label(value, i18n.language());
                 select.appendChild(option);
             }
             select.addEventListener("change", () => {
@@ -154,7 +164,7 @@ export class StateBar {
             tile.className = "state_tile";
             tile.dataset.block = name;
             tile.dataset.state = JSON.stringify(state);
-            tile.title = Object.entries(state).map(([k, v]) => `${k}=${v}`).join(", ") || "no states";
+            tile.title = state_label(state, i18n.language()) || t("state.none");
             tile.appendChild(document.createElement("img"));
             tile.addEventListener("click", () => this.picker.set_props(state));
             fragment.appendChild(tile);
@@ -166,8 +176,8 @@ export class StateBar {
         }
         const total = state_count(properties);
         this.note.textContent = capped
-            ? `Showing the first ${LIMIT} of ${total} combinations. Use the filters to narrow them down.`
-            : `${this.tiles.length} of ${total} combinations`;
+            ? t("state.capped", { limit: LIMIT, total })
+            : t("state.count", { shown: this.tiles.length, total });
     }
 
     _highlight(props) {

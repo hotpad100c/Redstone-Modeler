@@ -1,3 +1,4 @@
+import { strToU8 } from "../../lib/fflate.module.js";
 import { PackStack } from "./PackStack.mjs";
 import { build_atlas, decode_png, image_to_canvas } from "./Atlas.mjs";
 import { CompiledPack } from "./CompiledPack.mjs";
@@ -23,17 +24,17 @@ async function decode_colormap(bytes) {
  * @param {string} options.name
  * @param {Record<string, Record<string, string[]>>} [options.extra_properties]
  * @param {{blockstates: object, models: object}} [options.fallback] Entity block models, see collect()
- * @param {(message: string) => void} [options.progress]
+ * @param {(key: string, vars?: object) => void} [options.progress] Called with a key of the interface texts (`compile.*`) and its values
  * @returns {Promise<Uint8Array>}
  */
 export async function compile(packs, { name, extra_properties = {}, fallback, progress = () => {} }) {
     const stack = new PackStack(packs);
-    progress("Reading block states and models");
+    progress("compile.reading");
     const data = collect(stack, extra_properties, fallback);
     const { atlas, png } = await build_atlas(
         stack,
         data.textures,
-        (done, total) => progress(`Building texture atlas ${done}/${total}`),
+        (done, total) => progress("compile.atlas", { done, total }),
     );
     const colormaps = {};
     for (const map of COLORMAPS) {
@@ -42,7 +43,8 @@ export async function compile(packs, { name, extra_properties = {}, fallback, pr
             colormaps[`${map}.png`] = bytes;
         }
     }
-    progress("Packing");
+    progress("compile.packing");
+    const lang = Object.fromEntries(Object.entries(data.lang).map(([code, names]) => [code, strToU8(JSON.stringify(names))]));
     return write_rmpack({
         name,
         created: Date.now(),
@@ -51,7 +53,8 @@ export async function compile(packs, { name, extra_properties = {}, fallback, pr
         index: data.index,
         blockstates: data.blockstates,
         models: data.models,
-    }, png, colormaps);
+        languages: data.languages,
+    }, png, colormaps, lang);
 }
 
 /**
@@ -59,7 +62,7 @@ export async function compile(packs, { name, extra_properties = {}, fallback, pr
  * @returns {Promise<{pack: CompiledPack, atlas_image: HTMLCanvasElement}>}
  */
 export async function load_compiled(bytes) {
-    const { data, atlas_png, colormaps } = read_rmpack(bytes);
+    const { data, atlas_png, colormaps, lang } = read_rmpack(bytes);
     const decoded = {};
     for (const map of COLORMAPS) {
         if (colormaps[`${map}.png`]) {
@@ -67,7 +70,7 @@ export async function load_compiled(bytes) {
         }
     }
     return {
-        pack: new CompiledPack(data, { colormaps: decoded }),
+        pack: new CompiledPack(data, { colormaps: decoded, lang }),
         atlas_image: image_to_canvas(await decode_png(atlas_png)),
     };
 }

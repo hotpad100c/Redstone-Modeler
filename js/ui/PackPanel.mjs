@@ -1,3 +1,4 @@
+import { t } from "../i18n/i18n.mjs";
 import { fingerprint, delete_pack, get_active, get_pack_bytes, list_packs, put_pack, request_persistence, set_active } from "../cache/PackCache.mjs";
 import { Pack } from "../pack/Pack.mjs";
 import { compile } from "../pack/Loader.mjs";
@@ -66,6 +67,14 @@ export class PackPanel {
         this._render_sources();
     }
 
+    /** Redraws the lists after the language of the interface changed. */
+    rerender() {
+        this._render_sources();
+        if (this.dialog.open) {
+            this.refresh_library();
+        }
+    }
+
     async open() {
         this.dialog.showModal();
         await this.refresh_library();
@@ -93,7 +102,7 @@ export class PackPanel {
             }
             catch (e) {
                 console.error(e);
-                this.set_status(`Could not read ${file.name}: ${e.message}`, true);
+                this.set_status(t("pack.read_failed", { name: file.name, reason: e.message }), true);
             }
         }
         this._render_sources();
@@ -113,14 +122,14 @@ export class PackPanel {
             }
         }
         catch (e) {
-            this.set_status(`Could not read folder ${name}: ${e.message}`, true);
+            this.set_status(t("pack.folder_failed", { name, reason: e.message }), true);
         }
         this._render_sources();
     }
 
     async compile() {
         if (this.sources.length === 0) {
-            this.set_status("Add at least one resource pack first.", true);
+            this.set_status(t("pack.add_first"), true);
             return;
         }
         const name = this.name_input.value.trim() || this.sources.map(s => s.name).join(" + ");
@@ -131,14 +140,14 @@ export class PackPanel {
                 name,
                 extra_properties: this.extra_properties,
                 fallback: this.fallback,
-                progress: message => this.set_status(message),
+                progress: (key, vars) => this.set_status(t(key, vars)),
             });
             await this._store_and_use(bytes, this.sources, name);
-            this.set_status(`Done: ${name} (${format_size(bytes.length)})`);
+            this.set_status(t("pack.done", { name, size: format_size(bytes.length) }));
         }
         catch (e) {
             console.error(e);
-            this.set_status(`Compile failed: ${e.message}`, true);
+            this.set_status(t("pack.compile_failed", { reason: e.message }), true);
         }
         finally {
             this.compile_button.disabled = false;
@@ -153,8 +162,8 @@ export class PackPanel {
         this.active = id;
         const persisted = await request_persistence();
         this.storage_note.textContent = persisted
-            ? "Browser storage is persistent."
-            : "The browser may clear stored packs when disk space is low. Export .rmpack files as a backup.";
+            ? t("pack.storage_persistent")
+            : t("pack.storage_may_clear");
         await this.refresh_library();
     }
 
@@ -165,13 +174,13 @@ export class PackPanel {
             packs = await list_packs();
         }
         catch (e) {
-            this.storage_note.textContent = `Browser storage unavailable: ${e.message}`;
+            this.storage_note.textContent = t("pack.storage_unavailable", { reason: e.message });
         }
         this.library_list.replaceChildren();
         if (packs.length === 0) {
             const empty = document.createElement("li");
             empty.className = "note";
-            empty.textContent = "Nothing saved yet.";
+            empty.textContent = t("pack.none_saved");
             this.library_list.appendChild(empty);
         }
         for (const info of packs) {
@@ -180,14 +189,14 @@ export class PackPanel {
             const label = document.createElement("span");
             label.className = "pack_label";
             label.textContent = `${info.name} · ${format_size(info.size)} · ${info.sources.join(" + ")}`;
-            const use = this._button("Use", async () => {
+            const use = this._button(t("pack.use"), async () => {
                 const bytes = await get_pack_bytes(info.id);
                 await set_active(info.id);
                 await this.on_use(bytes, info.id);
                 await this.refresh_library();
             });
-            const save = this._button("Export", async () => download(await get_pack_bytes(info.id), `${info.name}.rmpack`));
-            const remove = this._button("Delete", async () => {
+            const save = this._button(t("pack.export"), async () => download(await get_pack_bytes(info.id), `${info.name}.rmpack`));
+            const remove = this._button(t("pack.delete"), async () => {
                 await delete_pack(info.id);
                 await this.refresh_library();
             });
@@ -217,7 +226,7 @@ export class PackPanel {
         if (this.sources.length === 0) {
             const empty = document.createElement("li");
             empty.className = "note";
-            empty.textContent = "No packs added. Drop .zip files here.";
+            empty.textContent = t("pack.none_added");
             this.source_list.appendChild(empty);
         }
         this.sources.forEach((source, index) => {
