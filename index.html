@@ -23,7 +23,10 @@
                         (document.body || document.documentElement).appendChild(banner);
                     }
                     var build = (document.querySelector("meta[name=build]") || {}).content;
-                    banner.textContent = messages.join("\n") + "\n\n[build " + build + " | WebGL2: " + webgl2() + " | " + navigator.userAgent + "]";
+                    var hint = /did not start|could not start/.test(messages.join(" "))
+                        ? "\n\nIf the site was updated a moment ago your browser may have kept old files. Reload without the cache (Safari: Cmd+Option+E, then reload; Chrome and Firefox: Ctrl+Shift+R or Cmd+Shift+R)."
+                        : "";
+                    banner.textContent = messages.join("\n") + hint + "\n\n[build " + build + " | WebGL2: " + webgl2() + " | " + navigator.userAgent + "]";
                     var close = document.createElement("button");
                     close.textContent = "x";
                     close.style.cssText = "position:absolute;right:6px;top:6px;border:1px solid #fff;background:transparent;color:#fff;border-radius:4px";

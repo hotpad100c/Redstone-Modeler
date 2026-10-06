@@ -14,7 +14,8 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { base_files, overlay_files, png, zip_of } from "./fixtures.mjs";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
+// SITE_ROOT points at an assembled site (scripts/build-site.sh) to test what gets deployed
+const root = process.env.SITE_ROOT ?? fileURLToPath(new URL("..", import.meta.url));
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".css": "text/css", ".png": "image/png" };
 
 const server = createServer(async (req, res) => {
@@ -580,11 +581,11 @@ await step("problems are shown on the page: no WebGL 2, a broken module, a missi
     assert.match(no_webgl2.text, /WebGL2: false/);
     assert.equal(no_webgl2.started, false);
 
-    const broken = await banner_of(other => other.route("**/js/pack/Atlas.mjs", route => route.fulfill({ contentType: "text/javascript", body: "export const broken = ;" })));
+    const broken = await banner_of(other => other.route("**/js/pack/Atlas.mjs*", route => route.fulfill({ contentType: "text/javascript", body: "export const broken = ;" })));
     assert.match(broken.text, /could not start/);
     assert.equal(broken.started, false);
 
-    const missing = await banner_of(other => other.route("**/lib/three.module.min.js", route => route.fulfill({ status: 404, body: "" })));
+    const missing = await banner_of(other => other.route("**/lib/three.module.min.js*", route => route.fulfill({ status: 404, body: "" })));
     assert.match(missing.text, /could not start/);
     assert.match(missing.text, /build /);
 });
