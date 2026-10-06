@@ -6,12 +6,13 @@
  * (set PLAYWRIGHT_MODULES to a node_modules folder if `playwright` is not installed here)
  */
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { base_files, overlay_files, zip_of } from "./fixtures.mjs";
+import { base_files, overlay_files, png, zip_of } from "./fixtures.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".css": "text/css", ".png": "image/png" };
@@ -53,6 +54,8 @@ page.on("console", (m) => {
         problems.push(m.text());
     }
 });
+
+let rmpack_bytes = null;
 
 async function step(name, fn) {
     await fn();
@@ -303,6 +306,7 @@ await step("look-alike states can be hidden", async () => {
 await step("eraser tool and clear all", async () => {
     const world_size = () => page.evaluate(() => window.__rm.world.blocks.size);
     assert.equal(await world_size(), 5);
+    await frame(); // the viewport may just have been resized by the state bar closing
     const pos = await page.evaluate(() => window.__rm.scene.screen_position(10, 0, 10));
     await page.click("#erase_button");
     assert.equal(await page.evaluate(() => window.__rm.scene.erase), true);
@@ -350,6 +354,7 @@ await step("export .rmpack, delete it, import it again", async () => {
     const [download] = await Promise.all([page.waitForEvent("download"), page.click("#library_list li button:text('Export')")]);
     const path = await download.path();
     const bytes = await readFile(path);
+    rmpack_bytes = bytes;
     assert.equal(bytes.subarray(0, 2).toString(), "PK");
     await page.click("#library_list li button:text('Delete')");
     await page.waitForSelector("#library_list li.note");
@@ -357,6 +362,220 @@ await step("export .rmpack, delete it, import it again", async () => {
     await page.waitForSelector("#library_list li .pack_label");
     assert.equal(await page.locator("#library_list li").count(), 1);
     assert.equal(await page.textContent("#pack_summary"), "Test stack");
+    await page.click("#pack_close");
+});
+
+await step("settings: a new size moves the bounds, the centre and the default planes", async () => {
+    await page.click("#settings_button");
+    await page.fill("#size_x", "8");
+    await page.fill("#size_y", "6");
+    await page.fill("#size_z", "10");
+    await page.click("#size_apply");
+    assert.match(await page.textContent("#size_note"), /5 blocks .* will be removed/);
+    assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 20, y: 20, z: 20 }, "first click only warns");
+    await page.click("#size_apply");
+    assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 8, y: 6, z: 10 });
+    assert.equal(await page.evaluate(() => window.__rm.world.blocks.size), 0);
+    const geometry = await page.evaluate(() => {
+        const { scene } = window.__rm;
+        scene.bounds.geometry.computeBoundingBox();
+        return {
+            max: scene.bounds.geometry.boundingBox.max.toArray(),
+            centre: scene.center.toArray(),
+            target: scene.controls.target.toArray(),
+            floor: scene.floor_plane.geometry.boundingBox ?? null,
+        };
+    });
+    assert.deepEqual(geometry.max, [8, 6, 10]);
+    assert.deepEqual(geometry.centre, [4, 3, 5]);
+    assert.deepEqual(geometry.target, [4, 3, 5]);
+    await page.click("#settings_close");
+    await click_gizmo("+y");
+    assert.equal(await page.evaluate(() => window.__rm.scene.plane), 3);
+    await click_gizmo("+z");
+    assert.equal(await page.evaluate(() => window.__rm.scene.plane), 5);
+    await click_gizmo("iso");
+});
+
+await step("settings: background and plane colours", async () => {
+    await page.click("#settings_button");
+    await page.fill("#bg_color", "#ff0000");
+    await page.fill("#plane_color", "#00ff00");
+    await page.$eval("#plane_opacity", (input) => {
+        input.value = "0.5";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.textContent("#plane_opacity_value"), "50%");
+    await page.click("#settings_close");
+    await frame();
+    assert.equal(await page.evaluate(() => window.__rm.scene.scene.background.getHexString()), "ff0000");
+    assert.ok(await count_pixels("r > 200 && g < 40 && b < 40") > 100000, "background is red");
+    await click_gizmo("+y");
+    const marker = await page.evaluate(() => {
+        const material = window.__rm.scene.plane_group.children[0].material;
+        return { color: material.color.getHexString(), opacity: material.opacity };
+    });
+    assert.deepEqual(marker, { color: "00ff00", opacity: 0.5 });
+    // Changing the colour while a 2D view is open updates it right away
+    await page.evaluate(() => window.__rm.scene.set_plane_style("#0000ff", 0.25));
+    assert.deepEqual(await page.evaluate(() => {
+        const material = window.__rm.scene.plane_group.children[0].material;
+        return { color: material.color.getHexString(), opacity: material.opacity };
+    }), { color: "0000ff", opacity: 0.25 });
+    await page.evaluate(() => window.__rm.scene.set_plane_style("#00ff00", 0.5));
+    await click_gizmo("iso");
+});
+
+await step("settings are remembered, and Reset brings the defaults back", async () => {
+    await page.reload();
+    await page.waitForFunction(() => window.__rm?.resources, null, { timeout: 15000 });
+    assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 8, y: 6, z: 10 });
+    assert.equal(await page.evaluate(() => window.__rm.scene.scene.background.getHexString()), "ff0000");
+    await page.click("#settings_button");
+    assert.equal(await page.inputValue("#size_y"), "6");
+    assert.equal(await page.inputValue("#plane_color"), "#00ff00");
+    await page.click("#settings_reset");
+    assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 20, y: 20, z: 20 });
+    assert.equal(await page.evaluate(() => window.__rm.scene.scene.background.getHexString()), "404040");
+    assert.equal(await page.inputValue("#size_x"), "20");
+    await page.click("#settings_close");
+});
+
+await step("loading a save from a bigger space resizes the space", async () => {
+    await page.click("#settings_button");
+    await page.fill("#size_x", "12");
+    await page.fill("#size_y", "12");
+    await page.fill("#size_z", "12");
+    await page.click("#size_apply");
+    await page.click("#settings_close");
+    await page.evaluate(() => window.__rm.world.set(11, 11, 11, { name: "minecraft:stone", props: {} }));
+    await page.click("#save_button");
+    await page.waitForFunction(() => document.querySelector("#save_button").textContent === "Code copied");
+    const code = await page.evaluate(() => navigator.clipboard.readText());
+    await page.click("#settings_button");
+    await page.fill("#size_x", "5");
+    await page.fill("#size_y", "5");
+    await page.fill("#size_z", "5");
+    await page.click("#size_apply");
+    await page.click("#size_apply");
+    await page.click("#settings_close");
+    assert.equal(await page.evaluate(() => window.__rm.world.blocks.size), 0);
+    await page.fill("#load_input", code);
+    await page.click("#load_button");
+    await page.waitForFunction(() => window.__rm.world.blocks.size === 1);
+    assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 12, y: 12, z: 12 });
+    await page.click("#settings_button");
+    assert.equal(await page.inputValue("#size_z"), "12");
+    await page.click("#settings_reset");
+    await page.click("#settings_close");
+});
+
+await step("mod assets: a picked assets folder and a deep zip are both found", async () => {
+    const mod_files = {
+        "assets/mymod/blockstates/gizmo.json": { variants: { "": { model: "mymod:block/gizmo" } } },
+        "assets/mymod/models/block/gizmo.json": {
+            textures: { all: "mymod:block/gizmo" },
+            elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: Object.fromEntries(["down", "up", "north", "south", "west", "east"].map(d => [d, { texture: "#all" }])) }],
+        },
+        "assets/mymod/textures/block/gizmo.png": png(16, 16, [10, 200, 120]),
+        // A second namespace next to the first, like assets/create next to assets/minecraft
+        "assets/othermod/blockstates/gizmo.json": { variants: { "": { model: "othermod:block/gizmo" } } },
+        "assets/othermod/models/block/gizmo.json": {
+            textures: { all: "othermod:block/gizmo" },
+            elements: [{ from: [0, 0, 0], to: [16, 8, 16], faces: Object.fromEntries(["down", "up", "north", "south", "west", "east"].map(d => [d, { texture: "#all" }])) }],
+        },
+        "assets/othermod/textures/block/gizmo.png": png(16, 16, [200, 60, 60]),
+    };
+    // 1. Pick the `assets` folder itself, like a folder copied from a mod repository
+    const folder = await mkdtemp(join(tmpdir(), "rsm-mod-"));
+    for (const [path, value] of Object.entries(mod_files)) {
+        await mkdir(join(folder, path, ".."), { recursive: true });
+        await writeFile(join(folder, path), value instanceof Uint8Array ? value : JSON.stringify(value));
+    }
+    await page.click("#pack_button");
+    await page.evaluate(() => {
+        window.__rm.pack_panel.sources.length = 0;
+        window.__rm.pack_panel._render_sources();
+    });
+    await page.setInputFiles("#pack_folder", join(folder, "assets"));
+    await page.waitForFunction(() => document.querySelectorAll("#source_list li:not(.note)").length === 1);
+    await page.fill("#pack_name", "Mod folder");
+    await page.click("#compile_button");
+    await page.waitForFunction(() => document.querySelector("#compile_status").textContent.startsWith("Done"), null, { timeout: 30000 });
+    assert.ok(await page.evaluate(() => window.__rm.resources.pack.names.includes("mymod:gizmo")), "assets folder picked directly");
+    assert.ok(await page.evaluate(() => window.__rm.resources.pack.names.includes("othermod:gizmo")), "second namespace too");
+    // Same short name in two namespaces gives two list entries, and the namespace filter separates them
+    await page.click("#pack_close");
+    assert.deepEqual(await page.$$eval("#block_namespace option", o => o.map(x => x.value)), ["", "mymod", "othermod"]);
+    assert.equal(await page.locator(".block_item:visible").count(), 2);
+    await page.selectOption("#block_namespace", "othermod");
+    assert.equal(await page.locator(".block_item:visible").count(), 1);
+    assert.equal(await page.locator(".block_item:visible").getAttribute("data-name"), "othermod:gizmo");
+    await page.selectOption("#block_namespace", "");
+    await page.click("#pack_button");
+
+    // 2. A zip of a whole repository, assets a few levels down
+    await page.evaluate(() => {
+        window.__rm.pack_panel.sources.length = 0;
+        window.__rm.pack_panel._render_sources();
+    });
+    const deep = Object.fromEntries(Object.entries(mod_files).map(([k, v]) => [`mymod-main/src/main/resources/${k}`, v]));
+    await page.setInputFiles("#pack_file", [{ name: "mymod-main.zip", mimeType: "application/zip", buffer: Buffer.from(zip_of(deep)) }]);
+    await page.waitForFunction(() => document.querySelectorAll("#source_list li:not(.note)").length === 1);
+    await page.fill("#pack_name", "Mod zip");
+    await page.click("#compile_button");
+    await page.waitForFunction(() => document.querySelector("#compile_status").textContent.startsWith("Done: Mod zip"), null, { timeout: 30000 });
+    assert.ok(await page.evaluate(() => window.__rm.resources.pack.names.includes("mymod:gizmo")), "deep assets folder in a zip");
+    const quads = await page.evaluate(() => window.__rm.resources.pack.geometry("mymod:gizmo", {}).quads.length);
+    assert.equal(quads, 6);
+    await page.click("#pack_close");
+});
+
+await step("phone: quick repeated taps place blocks and never zoom the page", async () => {
+    const phone = await browser.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    const mobile = await phone.newPage();
+    mobile.on("pageerror", e => problems.push(e.message));
+    await mobile.goto(url);
+    await mobile.waitForFunction(() => window.__rm);
+    await mobile.click("#pack_button");
+    await mobile.setInputFiles("#pack_file", [{ name: "Test stack.rmpack", mimeType: "application/zip", buffer: rmpack_bytes }]);
+    await mobile.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+    await mobile.click("#pack_close");
+    await mobile.evaluate(() => window.__rm.picker.select("minecraft:stone"));
+
+    const styles = await mobile.evaluate(() => {
+        const touch_action = selector => getComputedStyle(document.querySelector(selector)).touchAction;
+        const prevented = (target, type) => {
+            const event = new Event(type, { cancelable: true, bubbles: true });
+            target.dispatchEvent(event);
+            return event.defaultPrevented;
+        };
+        return {
+            body: touch_action("body"),
+            button: touch_action("#layer_up"),
+            hotbar: touch_action("#hotbar button"),
+            canvas: touch_action("#canvas3d"),
+            gesturestart: prevented(document, "gesturestart"),
+            canvas_touchend: prevented(document.getElementById("canvas3d"), "touchend"),
+            meta: document.querySelector("meta[name=viewport]").content,
+        };
+    });
+    assert.equal(styles.body, "manipulation");
+    assert.equal(styles.button, "manipulation");
+    assert.equal(styles.hotbar, "manipulation");
+    assert.equal(styles.canvas, "none");
+    assert.equal(styles.gesturestart, true);
+    assert.equal(styles.canvas_touchend, true);
+    assert.match(styles.meta, /maximum-scale=1/);
+
+    const cells = [[8, 8], [9, 8], [10, 8], [9, 9], [8, 9], [10, 9]];
+    for (const [x, z] of cells) {
+        const pos = await mobile.evaluate(([a, b]) => window.__rm.scene.screen_position(a, -0.5, b), [x, z]);
+        await mobile.touchscreen.tap(pos.x, pos.y);
+    }
+    assert.equal(await mobile.evaluate(() => window.__rm.world.blocks.size), cells.length);
+    assert.equal(await mobile.evaluate(() => window.visualViewport.scale), 1);
+    await phone.close();
 });
 
 await browser.close();

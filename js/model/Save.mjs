@@ -1,3 +1,5 @@
+import { valid_size } from "./Settings.mjs";
+
 /** @typedef {import("./World.mjs").World} World */
 
 export const SAVE_VERSION = 2;
@@ -22,7 +24,8 @@ export function serialize(world, pack_names = []) {
 }
 
 /**
- * Replaces the contents of `world`. Blocks outside its bounds are dropped.
+ * Replaces the contents of `world`. The world takes the size stored in the save.
+ * Blocks outside the bounds are dropped.
  * @param {object} save
  * @param {World} world
  * @returns {number} Number of dropped blocks
@@ -30,6 +33,12 @@ export function serialize(world, pack_names = []) {
 export function deserialize(save, world) {
     if (save?.version !== SAVE_VERSION) {
         throw new Error("Unsupported save: only version 2 saves can be loaded");
+    }
+    if (save.size !== undefined) {
+        if (!valid_size(save.size)) {
+            throw new Error("Unsupported save: the model size is out of range");
+        }
+        world.resize(save.size);
     }
     world.clear();
     let dropped = 0;

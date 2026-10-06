@@ -1,5 +1,5 @@
-import { MODEL_SIZE } from "./config.mjs";
 import { World } from "./model/World.mjs";
+import * as Settings from "./model/Settings.mjs";
 import { decode, deserialize, encode, serialize } from "./model/Save.mjs";
 import { load_compiled } from "./pack/Loader.mjs";
 import { get_active, get_pack_bytes } from "./cache/PackCache.mjs";
@@ -8,17 +8,31 @@ import { Resources } from "./render/Resources.mjs";
 import { Scene } from "./render/Scene.mjs";
 import { BlockPicker } from "./ui/BlockPicker.mjs";
 import { PackPanel } from "./ui/PackPanel.mjs";
+import { SettingsPanel } from "./ui/SettingsPanel.mjs";
 import { StateBar } from "./ui/StateBar.mjs";
 
 const AUTOSAVE_KEY = "redstone-modeler.autosave";
 const $ = id => document.getElementById(id);
 
-const world = new World(MODEL_SIZE);
+const settings = Settings.load();
+const world = new World(settings.size);
 const scene = new Scene($("canvas3d"), world);
+const settings_panel = new SettingsPanel({ dialog: $("settings_dialog"), settings, world, scene });
+$("settings_button").addEventListener("click", () => settings_panel.open());
+
+// Phones: stop quick repeated taps and pinches from zooming the page. Pinching inside the
+// canvas is still handled by the camera controls.
+document.addEventListener("gesturestart", e => e.preventDefault());
+$("canvas3d").addEventListener("touchend", (e) => {
+    if (e.cancelable) {
+        e.preventDefault();
+    }
+}, { passive: false });
 const icons = new IconRenderer(64);
 const picker = new BlockPicker({
     list: $("block_list"),
     search: $("block_search"),
+    namespace: $("block_namespace"),
     states: $("block_states"),
     hotbar: $("hotbar"),
 }, icons);
@@ -177,6 +191,8 @@ $("load_button").addEventListener("click", async () => {
     try {
         // eslint-disable-next-line no-undef
         const dropped = deserialize(await decode($("load_input").value, LZMA), world);
+        scene.apply_world_size();
+        settings_panel.sync_size();
         flash($("load_button"), dropped ? `Loaded, ${dropped} outside` : "Loaded");
     }
     catch (e) {
@@ -211,6 +227,8 @@ function restore() {
         const saved = localStorage.getItem(AUTOSAVE_KEY);
         if (saved) {
             deserialize(JSON.parse(saved), world);
+            scene.apply_world_size();
+            settings_panel.sync_size();
         }
     }
     catch (e) {

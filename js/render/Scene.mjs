@@ -46,6 +46,7 @@ export class Scene {
         /** @type {() => void} Called when the view mode or the plane changes */
         this.on_view_change = () => {};
         this.animation = null;
+        this.plane_style = { color: "#4488ff", opacity: 0.12 };
         /** Eraser tool: left click targets the block under the cursor instead of the empty cell next to it */
         this.erase = false;
 
@@ -53,9 +54,8 @@ export class Scene {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x404040);
 
-        const { x: sx, y: sy, z: sz } = world.size;
         this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -500, 500);
-        this.center = new THREE.Vector3(sx / 2, sy / 2, sz / 2);
+        this.center = new THREE.Vector3(world.size.x / 2, world.size.y / 2, world.size.z / 2);
         this.camera.position.copy(this.center).addScaledVector(ISO_DIRECTION, 60);
         this.controls = new OrbitControls(this.camera, canvas);
         this.controls.target.copy(this.center);
@@ -66,21 +66,7 @@ export class Scene {
         this.world_mesh = new WorldMesh(world);
         this.scene.add(this.world_mesh.group);
 
-        this.floor_grid = new THREE.GridHelper(Math.max(sx, sz), Math.max(sx, sz), 0xffffff, 0x808080);
-        this.floor_grid.position.set(sx / 2, 0, sz / 2);
-        this.scene.add(this.floor_grid);
-
-        this.floor_plane = new THREE.Mesh(
-            new THREE.PlaneGeometry(sx, sz).rotateX(-Math.PI / 2).translate(sx / 2, 0, sz / 2),
-            new THREE.MeshBasicMaterial({ visible: false }),
-        );
-        this.scene.add(this.floor_plane);
-
-        this.bounds = new THREE.LineSegments(
-            new THREE.EdgesGeometry(new THREE.BoxGeometry(sx, sy, sz).translate(sx / 2, sy / 2, sz / 2)),
-            new THREE.LineBasicMaterial({ color: 0x606060 }),
-        );
-        this.scene.add(this.bounds);
+        this._build_frame();
 
         // Marker and grid of the 2D plane; rebuilt whenever the view axis changes
         this.plane_group = new THREE.Group();
@@ -101,6 +87,75 @@ export class Scene {
         this.resize();
         this._frame = this._frame.bind(this);
         requestAnimationFrame(this._frame);
+    }
+
+    /** Floor grid, floor picking plane and bounding box for the current world size. */
+    _build_frame() {
+        const { x: sx, y: sy, z: sz } = this.world.size;
+        for (const object of [this.floor_grid, this.floor_plane, this.bounds]) {
+            if (object) {
+                this.scene.remove(object);
+                object.geometry.dispose();
+                object.material.dispose();
+            }
+        }
+        this.floor_grid = new THREE.GridHelper(Math.max(sx, sz), Math.max(sx, sz), 0xffffff, 0x808080);
+        this.floor_grid.position.set(sx / 2, 0, sz / 2);
+        this.floor_grid.visible = !this.view;
+        this.floor_plane = new THREE.Mesh(
+            new THREE.PlaneGeometry(sx, sz).rotateX(-Math.PI / 2).translate(sx / 2, 0, sz / 2),
+            new THREE.MeshBasicMaterial({ visible: false }),
+        );
+        this.bounds = new THREE.LineSegments(
+            new THREE.EdgesGeometry(new THREE.BoxGeometry(sx, sy, sz).translate(sx / 2, sy / 2, sz / 2)),
+            new THREE.LineBasicMaterial({ color: 0x606060 }),
+        );
+        this.scene.add(this.floor_grid, this.floor_plane, this.bounds);
+    }
+
+    /**
+     * Changes the size of the model space. Blocks outside are removed.
+     * @param {{x: number, y: number, z: number}} size
+     * @returns {number} Number of removed blocks
+     */
+    set_size(size) {
+        const removed = this.world.resize(size);
+        this.apply_world_size();
+        return removed;
+    }
+
+    /** Rebuilds everything that depends on the world size; call after the world was resized elsewhere. */
+    apply_world_size() {
+        const { x, y, z } = this.world.size;
+        const centre = new THREE.Vector3(x / 2, y / 2, z / 2);
+        // Move the camera with the centre so the viewing direction stays the same
+        const shift = centre.clone().sub(this.center);
+        this.center.copy(centre);
+        this.camera.position.add(shift);
+        this.controls.target.add(shift);
+        this.controls.update();
+        this._build_frame();
+        this.resize();
+        if (this.view) {
+            this.plane = Math.min(this.plane, this.world.size["xyz"[this.view.axis]] - 1);
+        }
+        this._update_plane();
+    }
+
+    /** @param {string} color CSS colour like `#404040` */
+    set_background(color) {
+        this.scene.background = new THREE.Color(color);
+    }
+
+    /**
+     * @param {string} color CSS colour
+     * @param {number} opacity 0..1
+     */
+    set_plane_style(color, opacity) {
+        this.plane_style = { color, opacity };
+        if (this.view) {
+            this._update_plane();
+        }
     }
 
     /** @param {import("./Resources.mjs").Resources|null} resources */
@@ -216,7 +271,12 @@ export class Scene {
             const [w, h] = [[size[1], size[2]], [size[0], size[2]], [size[0], size[1]]][axis];
             const marker = new THREE.Mesh(
                 new THREE.PlaneGeometry(w, h).rotateX(-Math.PI / 2),
-                new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.12, depthWrite: false }),
+                new THREE.MeshBasicMaterial({
+                    color: this.plane_style.color,
+                    transparent: true,
+                    opacity: this.plane_style.opacity,
+                    depthWrite: false,
+                }),
             );
             this.plane_group.add(marker, make_grid(w, h));
             this.plane_group.rotation.set(axis === 2 ? Math.PI / 2 : 0, 0, axis === 0 ? -Math.PI / 2 : 0);

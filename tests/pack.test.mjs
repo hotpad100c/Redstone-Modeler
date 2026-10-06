@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { enumerate_states, parse_variant_key, state_count, select_models, select_models_layered, when_matches } from "../js/pack/BlockStates.mjs";
 import { collect } from "../js/pack/Compiler.mjs";
 import { CompiledPack } from "../js/pack/CompiledPack.mjs";
-import { Pack, parse_json } from "../js/pack/Pack.mjs";
+import { Pack, locate_assets, parse_json } from "../js/pack/Pack.mjs";
 import { PackStack } from "../js/pack/PackStack.mjs";
 import { base_pack, make_pack, overlay_pack, stack, zip_of, base_files } from "./fixtures.mjs";
 
@@ -42,9 +42,58 @@ test("lenient json", () => {
 test("zip loading strips a wrapper folder and drops unrelated files", () => {
     const zip = zip_of({ "MyPack/assets/minecraft/blockstates/a.json": { variants: {} }, "MyPack/pack.mcmeta": {}, "MyPack/sounds/x.ogg": new Uint8Array(3) });
     const pack = Pack.from_zip("wrapped", zip);
-    assert.ok(pack.has("assets/minecraft/blockstates/a.json"));
-    assert.ok(pack.has("pack.mcmeta"));
-    assert.equal([...pack.paths()].length, 2);
+    assert.deepEqual([...pack.paths()], ["assets/minecraft/blockstates/a.json"]);
+});
+
+const located = paths => Object.fromEntries(locate_assets(paths));
+
+test("assets folder is found at the top, one level down and deeper", () => {
+    assert.deepEqual(located(["assets/m/models/a.json"]), { "assets/m/models/a.json": "assets/m/models/a.json" });
+    assert.deepEqual(located(["Pack/assets/m/models/a.json"]), { "Pack/assets/m/models/a.json": "assets/m/models/a.json" });
+    assert.deepEqual(
+        located(["repo-main/src/main/resources/assets/mod/blockstates/b.json"]),
+        { "repo-main/src/main/resources/assets/mod/blockstates/b.json": "assets/mod/blockstates/b.json" },
+    );
+});
+
+test("only the shallowest level with an assets folder counts, and nested folders named assets stay intact", () => {
+    const result = located([
+        "assets/m/textures/assets/deep.png",
+        "docs/assets/images/logo.png",
+        "src/main/resources/assets/other/models/x.json",
+    ]);
+    assert.deepEqual(result, { "assets/m/textures/assets/deep.png": "assets/m/textures/assets/deep.png" });
+});
+
+test("several modules at the same depth are merged and the first file wins", () => {
+    const paths = [
+        "common/src/main/resources/assets/mod/models/block/a.json",
+        "fabric/src/main/resources/assets/mod/models/block/a.json",
+        "fabric/src/main/resources/assets/mod/models/block/b.json",
+    ];
+    assert.deepEqual(located(paths), Object.fromEntries(paths.map(p => [p, p.slice(p.indexOf("assets/"))])));
+});
+
+test("a zip of the contents of an assets folder is recognised by its namespace folders", () => {
+    assert.deepEqual(
+        located(["mymod/models/block/a.json", "mymod/textures/block/a.png", "readme/other.json"]),
+        { "mymod/models/block/a.json": "assets/mymod/models/block/a.json", "mymod/textures/block/a.png": "assets/mymod/textures/block/a.png" },
+    );
+    assert.deepEqual(located(["Wrapper/mymod/blockstates/a.json"]), { "Wrapper/mymod/blockstates/a.json": "assets/mymod/blockstates/a.json" });
+});
+
+test("archives without any resource layout give nothing", () => {
+    assert.equal(locate_assets(["readme.json", "src/Main.json", "assets/loose.png"]).size, 0);
+});
+
+test("zip loading finds a deep assets folder and keeps the first duplicate", () => {
+    const zip = zip_of({
+        "x/y/z/assets/mod/blockstates/a.json": { variants: { "": { model: "mod:block/a" } } },
+        "x/y/z/assets/mod/models/block/a.json": { elements: [] },
+    });
+    const pack = Pack.from_zip("deep", zip);
+    assert.deepEqual([...pack.paths()].sort(), ["assets/mod/blockstates/a.json", "assets/mod/models/block/a.json"]);
+    assert.ok(pack.json("assets/mod/blockstates/a.json").variants);
 });
 
 test("stack: the top layer wins for files", () => {
@@ -190,4 +239,30 @@ test("signature tells apart states that look different and merges ones that look
         layered.signature("minecraft:observer", { facing: "north", powered: "false" }),
         layered.signature("minecraft:observer", { facing: "north", powered: "true" }),
     );
+});
+
+test("several namespaces under one assets folder stay separate and can refer to each other", () => {
+    const cube = textures => ({
+        textures,
+        elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: Object.fromEntries(["down", "up", "north", "south", "west", "east"].map(d => [d, { texture: "#all" }])) }],
+    });
+    const zip = zip_of({
+        "assets/minecraft/blockstates/stone.json": { variants: { "": { model: "block/stone" } } },
+        "assets/minecraft/blockstates/chest.json": { variants: { "": { model: "block/chest" } } },
+        "assets/minecraft/models/block/stone.json": cube({ all: "block/stone" }),
+        "assets/minecraft/models/block/chest.json": cube({ all: "block/chest" }),
+        "assets/minecraft/models/block/cube_all.json": cube({}),
+        "assets/create/blockstates/cog.json": { variants: { "axis=x": { model: "create:block/cog", x: 90 }, "axis=y": { model: "create:block/cog" } } },
+        "assets/create/blockstates/chest.json": { variants: { "": { model: "create:block/chest" } } },
+        "assets/create/models/block/cog.json": { parent: "minecraft:block/cube_all", textures: { all: "create:block/cog", particle: "block/stone" } },
+        "assets/create/models/block/chest.json": cube({ all: "create:block/chest" }),
+    });
+    const data = collect(new PackStack([Pack.from_zip("both", zip)]));
+    assert.deepEqual(Object.keys(data.index), ["create:chest", "create:cog", "minecraft:chest", "minecraft:stone"]);
+    assert.deepEqual(data.index["create:cog"], { axis: ["x", "y"] });
+    assert.ok(data.models["create:block/cog"].elements.length === 1, "parent from the other namespace was used");
+    assert.equal(data.models["create:block/cog"].elements[0].faces.up.texture, "create:block/cog");
+    assert.equal(data.models["minecraft:block/chest"].elements[0].faces.up.texture, "minecraft:block/chest");
+    assert.equal(data.models["create:block/chest"].elements[0].faces.up.texture, "create:block/chest");
+    assert.ok(data.textures.includes("create:block/cog") && data.textures.includes("minecraft:block/stone"));
 });

@@ -7,7 +7,7 @@ export class World {
      * @param {{x: number, y: number, z: number}} size
      */
     constructor(size) {
-        this.size = size;
+        this.size = { ...size };
         this.blocks = new Map();
         this.version = 0;
     }
@@ -39,6 +39,37 @@ export class World {
         if (removed) {
             this.version++;
         }
+        return removed;
+    }
+
+    /**
+     * How many blocks a smaller world would lose.
+     * @param {{x: number, y: number, z: number}} size
+     */
+    count_outside(size) {
+        let count = 0;
+        for (const [x, y, z] of this.entries()) {
+            if (x >= size.x || y >= size.y || z >= size.z) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Changes the size. Blocks outside the new bounds are removed.
+     * @param {{x: number, y: number, z: number}} size
+     * @returns {number} Number of removed blocks
+     */
+    resize(size) {
+        const removed = this.count_outside(size);
+        this.size = { ...size };
+        for (const [x, y, z] of [...this.entries()]) {
+            if (!this.in_bounds(x, y, z)) {
+                this.blocks.delete(World.key(x, y, z));
+            }
+        }
+        this.version++;
         return removed;
     }
 
