@@ -26,10 +26,11 @@ export class MeshData {
      * @param {number[]} offset Block position
      * @param {number[]} tint RGB 0..1
      * @param {number[]} cell
+     * @param {number} [brightness] Multiplier, used to dim blocks behind the 2D plane
      */
-    add(quad, rect, offset, tint, cell) {
+    add(quad, rect, offset, tint, cell, brightness = 1) {
         const start = this.positions.length / 3;
-        const shade = to_linear(quad.shade);
+        const shade = to_linear(quad.shade * brightness);
         const rgb = quad.tint >= 0 ? tint.map(to_linear) : [1, 1, 1];
         for (let i = 0; i < 4; i++) {
             this.positions.push(

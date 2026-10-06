@@ -19,19 +19,23 @@
             <input type="text" id="load_input" size="8" placeholder="code" />
             <button type="button" id="load_button">Load</button>
             <div id="separator"></div>
-            <button type="button" id="layer_down" title="Lower layer ([)">-</button>
-            <div id="layer_number"></div>
-            <button type="button" id="layer_up" title="Raise layer (])">+</button>
+            <div id="plane_controls" hidden>
+                <span class="note">Plane</span>
+                <button type="button" id="layer_down" title="Move plane back ([)">-</button>
+                <div id="layer_number"></div>
+                <button type="button" id="layer_up" title="Move plane forward (])">+</button>
+            </div>
         </div>
         <div id="main">
             <div id="viewport">
                 <canvas id="canvas3d"></canvas>
+                <canvas id="gizmo" title="Click an axis to look along it, the centre for the default view"></canvas>
                 <div id="onboarding">
                     <h2>Import a resource pack to start</h2>
                     <p>Blocks, models and block states are read from the resource packs you provide. Nothing is uploaded; the compiled result is cached in this browser.</p>
                     <button type="button" id="onboarding_button">Import resource packs</button>
                 </div>
-                <div id="help">Click: place · Right click: remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · [ ]: layer</div>
+                <div id="help">Click: place · Right click: remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · Axis ball: 2D views, then [ ] moves the plane</div>
             </div>
             <div id="sidebar">
                 <input type="search" id="block_search" placeholder="Search blocks" />
@@ -39,7 +43,18 @@
                 <div id="block_states"></div>
             </div>
         </div>
-        <div id="hotbar"></div>
+        <div id="state_bar" hidden>
+            <div class="row">
+                <div id="state_filters"></div>
+                <label class="note"><input type="checkbox" id="state_dedupe" /> Hide look-alikes</label>
+                <span id="state_note" class="note"></span>
+            </div>
+            <div id="state_grid"></div>
+        </div>
+        <div id="hotbar_row">
+            <button type="button" id="state_toggle" title="Show every state combination of the held block">States ▲</button>
+            <div id="hotbar"></div>
+        </div>
 
         <dialog id="pack_dialog">
             <h2>Resource packs</h2>

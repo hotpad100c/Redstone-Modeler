@@ -59,6 +59,18 @@ export class CompiledPack {
         return geometry;
     }
 
+    /**
+     * Text that is equal for states that look the same, ignoring tint.
+     * @param {string} name
+     * @param {Record<string, string>} state
+     */
+    signature(name, state) {
+        const round = v => Math.round(v * 1000) / 1000;
+        return JSON.stringify(this.geometry(name, state).quads.map(q => [
+            q.pos.map(round), q.uv.map(round), q.tex, q.tint, round(q.shade),
+        ]));
+    }
+
     _build(name, state) {
         const defs = this.data.blockstates[name] ?? [];
         const chosen = select_models_layered(defs, state);

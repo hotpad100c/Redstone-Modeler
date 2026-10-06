@@ -112,6 +112,12 @@ export function base_files() {
                 { when: { OR: [{ east: "true" }, { west: "true" }] }, apply: { model: "minecraft:block/side", y: 90 } },
             ],
         },
+        [`${ns}/blockstates/lever.json`]: {
+            variants: {
+                "powered=false": { model: "minecraft:block/stone" },
+                "powered=true": { model: "minecraft:block/stone" },
+            },
+        },
         [`${ns}/blockstates/grass_block.json`]: { variants: { "": { model: "minecraft:block/grass" } } },
         [`${ns}/blockstates/glass.json`]: { variants: { "": { model: "minecraft:block/glass" } } },
         [`${ns}/blockstates/chest.json`]: { variants: { "": { model: "minecraft:block/chest" } } },

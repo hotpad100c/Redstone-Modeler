@@ -201,3 +201,43 @@ export function block_properties(defs, extra = {}) {
 export function default_state(properties) {
     return Object.fromEntries(Object.entries(properties).map(([prop, values]) => [prop, values[0]]));
 }
+
+/**
+ * Number of state combinations.
+ * @param {Record<string, string[]>} properties
+ */
+export function state_count(properties) {
+    return Object.values(properties).reduce((n, values) => n * values.length, 1);
+}
+
+/**
+ * Every combination of property values. The last property changes fastest.
+ * @param {Record<string, string[]>} properties
+ * @param {Record<string, string>} [filters] Property to the only value that is allowed
+ * @returns {Generator<Record<string, string>>}
+ */
+export function* enumerate_states(properties, filters = {}) {
+    const entries = Object.entries(properties).map(([prop, values]) => [
+        prop,
+        filters[prop] ? values.filter(v => v === filters[prop]) : values,
+    ]);
+    if (entries.some(([, values]) => values.length === 0)) {
+        return;
+    }
+    const counters = entries.map(() => 0);
+    for (;;) {
+        yield Object.fromEntries(entries.map(([prop, values], i) => [prop, values[counters[i]]]));
+        let i = entries.length - 1;
+        while (i >= 0) {
+            counters[i]++;
+            if (counters[i] < entries[i][1].length) {
+                break;
+            }
+            counters[i] = 0;
+            i--;
+        }
+        if (i < 0) {
+            return;
+        }
+    }
+}

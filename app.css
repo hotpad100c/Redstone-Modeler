@@ -179,12 +179,90 @@ button.selected, .selected {
     margin: 2px 0;
 }
 
+#hotbar_row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: #202020;
+}
+
 #hotbar {
     display: flex;
+    flex: 1;
     justify-content: center;
     gap: 4px;
-    padding: 4px;
-    background: #202020;
+}
+
+#plane_controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#plane_controls[hidden] {
+    display: none;
+}
+
+#gizmo {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    touch-action: none;
+    cursor: pointer;
+}
+
+#state_bar {
+    background: #2a2a2a;
+    border-top: 3px solid #0f0f0f;
+    padding: 4px 8px;
+}
+
+#state_bar[hidden] {
+    display: none;
+}
+
+#state_bar .row {
+    align-items: center;
+    margin: 2px 0 4px;
+}
+
+#state_filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+#state_filters label {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    font-size: 12px;
+}
+
+#state_grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    max-height: 190px;
+    overflow-y: auto;
+}
+
+.state_tile {
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border-width: 2px;
+    border-color: #606060;
+}
+
+.state_tile.selected {
+    border-color: white;
+}
+
+.state_tile img {
+    width: 100%;
+    height: 100%;
 }
 
 .slot {

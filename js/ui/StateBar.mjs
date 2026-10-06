@@ -1,0 +1,178 @@
+import { enumerate_states, state_count } from "../pack/BlockStates.mjs";
+
+const LIMIT = 5000;
+
+/**
+ * Expandable bar above the hotbar that shows a picture of every state combination
+ * of the held block. Clicking one sets the held block's state.
+ */
+export class StateBar {
+    /**
+     * @param {object} elements
+     * @param {HTMLElement} elements.bar
+     * @param {HTMLElement} elements.toggle
+     * @param {HTMLElement} elements.filters
+     * @param {HTMLElement} elements.grid
+     * @param {HTMLElement} elements.note
+     * @param {HTMLInputElement} elements.dedupe
+     * @param {import("./BlockPicker.mjs").BlockPicker} picker
+     * @param {import("../render/Icons.mjs").IconRenderer} icons
+     * @param {() => import("../render/Resources.mjs").Resources|null} get_resources
+     */
+    constructor({ bar, toggle, filters, grid, note, dedupe }, picker, icons, get_resources) {
+        this.bar = bar;
+        this.toggle = toggle;
+        this.filters_element = filters;
+        this.grid = grid;
+        this.note = note;
+        this.dedupe = dedupe;
+        this.picker = picker;
+        this.icons = icons;
+        this.get_resources = get_resources;
+        /** @type {Record<string, string>} */
+        this.filters = {};
+        this.key = null;
+        this.tiles = [];
+        this.observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) {
+                    const tile = entry.target;
+                    const img = tile.firstChild;
+                    if (!img.src) {
+                        img.src = this.icons.icon(tile.dataset.block, JSON.parse(tile.dataset.state));
+                    }
+                    this.observer.unobserve(tile);
+                }
+            }
+        }, { root: grid });
+        toggle.addEventListener("click", () => this.set_open(this.bar.hidden));
+        dedupe.addEventListener("change", () => this.refresh());
+        this.set_open(false);
+    }
+
+    get open() {
+        return !this.bar.hidden;
+    }
+
+    set_open(open) {
+        this.bar.hidden = !open;
+        this.toggle.classList.toggle("selected", open);
+        this.toggle.textContent = open ? "States ▼" : "States ▲";
+        if (open) {
+            this.refresh();
+        }
+    }
+
+    /** Brings the bar up to date with the held block. Cheap when only the held state changed. */
+    refresh() {
+        if (!this.open) {
+            return;
+        }
+        const block = this.picker.selected;
+        const resources = this.get_resources();
+        if (!block || !resources) {
+            this._clear("");
+            return;
+        }
+        if (this.block_name !== block.name || this.resources !== resources) {
+            this.block_name = block.name;
+            this.resources = resources;
+            this.filters = {};
+            this.key = null;
+            this._render_filters(resources.pack.properties(block.name));
+        }
+        const key = JSON.stringify([block.name, this.filters, this.dedupe.checked]);
+        if (key !== this.key) {
+            this.key = key;
+            this._rebuild(block.name, resources);
+        }
+        this._highlight(block.props);
+    }
+
+    _clear(message) {
+        this.observer.disconnect();
+        this.grid.replaceChildren();
+        this.filters_element.replaceChildren();
+        this.note.textContent = message;
+        this.tiles = [];
+        this.block_name = null;
+        this.key = null;
+    }
+
+    _render_filters(properties) {
+        this.filters_element.replaceChildren();
+        for (const [prop, values] of Object.entries(properties)) {
+            const label = document.createElement("label");
+            const text = document.createElement("span");
+            text.textContent = prop;
+            const select = document.createElement("select");
+            select.dataset.property = prop;
+            for (const value of ["", ...values]) {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = value === "" ? "any" : value;
+                select.appendChild(option);
+            }
+            select.addEventListener("change", () => {
+                if (select.value) {
+                    this.filters[prop] = select.value;
+                }
+                else {
+                    delete this.filters[prop];
+                }
+                this.refresh();
+            });
+            label.append(text, select);
+            this.filters_element.appendChild(label);
+        }
+    }
+
+    _rebuild(name, resources) {
+        this.observer.disconnect();
+        this.grid.replaceChildren();
+        this.tiles = [];
+        const { pack } = resources;
+        const properties = pack.properties(name);
+        const seen = new Set();
+        let capped = false;
+        const fragment = document.createDocumentFragment();
+        for (const state of enumerate_states(properties, this.filters)) {
+            if (this.dedupe.checked) {
+                const tint = resources.tint(name, state).map(v => Math.round(v * 255)).join(",");
+                const signature = `${pack.signature(name, state)}|${tint}`;
+                if (seen.has(signature)) {
+                    continue;
+                }
+                seen.add(signature);
+            }
+            if (this.tiles.length >= LIMIT) {
+                capped = true;
+                break;
+            }
+            const tile = document.createElement("button");
+            tile.type = "button";
+            tile.className = "state_tile";
+            tile.dataset.block = name;
+            tile.dataset.state = JSON.stringify(state);
+            tile.title = Object.entries(state).map(([k, v]) => `${k}=${v}`).join(", ") || "no states";
+            tile.appendChild(document.createElement("img"));
+            tile.addEventListener("click", () => this.picker.set_props(state));
+            fragment.appendChild(tile);
+            this.tiles.push({ tile, state });
+        }
+        this.grid.appendChild(fragment);
+        for (const { tile } of this.tiles) {
+            this.observer.observe(tile);
+        }
+        const total = state_count(properties);
+        this.note.textContent = capped
+            ? `Showing the first ${LIMIT} of ${total} combinations. Use the filters to narrow them down.`
+            : `${this.tiles.length} of ${total} combinations`;
+    }
+
+    _highlight(props) {
+        for (const { tile, state } of this.tiles) {
+            tile.classList.toggle("selected", Object.entries(state).every(([k, v]) => props[k] === v));
+        }
+    }
+}
