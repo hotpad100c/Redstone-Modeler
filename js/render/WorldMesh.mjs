@@ -1,29 +1,20 @@
 import * as THREE from "three";
+import { DIRS } from "./BlockMesher.mjs";
+import { MeshData } from "./MeshData.mjs";
 
-// Face definitions: normal, shade and the four corners (counter-clockwise seen from outside).
-const FACES = [
-    { dir: [1, 0, 0], shade: 0.8, corners: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]] },
-    { dir: [-1, 0, 0], shade: 0.8, corners: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]] },
-    { dir: [0, 1, 0], shade: 1.0, corners: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]] },
-    { dir: [0, -1, 0], shade: 0.5, corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]] },
-    { dir: [0, 0, 1], shade: 0.9, corners: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]] },
-    { dir: [0, 0, -1], shade: 0.6, corners: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]] },
-];
-
-/**
- * Placeholder look for blocks until resource packs are loaded.
- * @param {string} name
- */
-function color_of(name) {
-    let hash = 0;
-    for (const c of name) {
-        hash = (hash * 31 + c.codePointAt(0)) >>> 0;
-    }
-    return new THREE.Color().setHSL((hash % 360) / 360, 0.45, 0.55);
-}
+const DIR_OFFSET = {
+    down: [0, -1, 0],
+    up: [0, 1, 0],
+    north: [0, 0, -1],
+    south: [0, 0, 1],
+    west: [-1, 0, 0],
+    east: [1, 0, 0],
+};
 
 /**
- * Builds one merged mesh of all visible blocks, culling faces hidden by neighbours.
+ * Merged geometry of all blocks at or below the current layer.
+ * Faces covered by an opaque full block are skipped.
+ * The whole world is rebuilt when it changes, which is fast enough for the model sizes in use.
  */
 export class WorldMesh {
     /**
@@ -32,60 +23,79 @@ export class WorldMesh {
     constructor(world) {
         this.world = world;
         this.max_layer = world.size.y - 1;
-        this.object = new THREE.Mesh(
-            new THREE.BufferGeometry(),
-            new THREE.MeshBasicMaterial({ vertexColors: true }),
-        );
+        /** @type {import("./Resources.mjs").Resources|null} */
+        this.resources = null;
+        this.group = new THREE.Group();
+        /** @type {THREE.Mesh[]} */
+        this.meshes = [];
         this.built_version = -1;
         this.built_layer = -1;
+        this.built_resources = null;
+    }
+
+    set_resources(resources) {
+        this.resources = resources;
     }
 
     set_layer(layer) {
         this.max_layer = layer;
     }
 
-    /** Rebuilds the geometry when the world or the layer changed. */
     update() {
-        if (this.built_version === this.world.version && this.built_layer === this.max_layer) {
+        if (this.built_version === this.world.version
+            && this.built_layer === this.max_layer
+            && this.built_resources === this.resources) {
             return;
         }
         this.built_version = this.world.version;
         this.built_layer = this.max_layer;
+        this.built_resources = this.resources;
+        for (const mesh of this.meshes) {
+            this.group.remove(mesh);
+            mesh.geometry.dispose();
+        }
+        this.meshes = [];
+        const { resources } = this;
+        if (!resources) {
+            return;
+        }
 
-        const positions = [];
-        const colors = [];
-        const indices = [];
-        const colour_cache = new Map();
+        const { pack } = resources;
+        const solid = new MeshData(resources.atlas);
+        const translucent = new MeshData(resources.atlas);
+        const geometry_of = block => pack.geometry(block.name, block.props);
 
         for (const [x, y, z, block] of this.world.entries()) {
             if (y > this.max_layer) {
                 continue;
             }
-            if (!colour_cache.has(block.name)) {
-                colour_cache.set(block.name, color_of(block.name));
-            }
-            const base = colour_cache.get(block.name);
-            for (const face of FACES) {
-                const [dx, dy, dz] = face.dir;
-                const neighbour_y = y + dy;
-                if (neighbour_y <= this.max_layer && this.world.get(x + dx, neighbour_y, z + dz)) {
-                    continue;
+            const { quads } = geometry_of(block);
+            let tint = null;
+            for (const quad of quads) {
+                if (quad.cull >= 0) {
+                    const [dx, dy, dz] = DIR_OFFSET[DIRS[quad.cull]];
+                    const ny = y + dy;
+                    const neighbour = ny <= this.max_layer ? this.world.get(x + dx, ny, z + dz) : null;
+                    if (neighbour && geometry_of(neighbour).occludes) {
+                        continue;
+                    }
                 }
-                const start = positions.length / 3;
-                for (const [cx, cy, cz] of face.corners) {
-                    positions.push(x + cx, y + cy, z + cz);
-                    colors.push(base.r * face.shade, base.g * face.shade, base.b * face.shade);
+                if (quad.tint >= 0) {
+                    tint ??= resources.tint(block.name, { ...pack.default_state(block.name), ...block.props });
                 }
-                indices.push(start, start + 1, start + 2, start, start + 2, start + 3);
+                const rect = pack.texture(quad.tex);
+                (rect.translucent ? translucent : solid).add(quad, rect, [x, y, z], tint ?? [1, 1, 1], [x, y, z]);
             }
         }
 
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-        geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-        geometry.setIndex(indices);
-        geometry.computeBoundingSphere();
-        this.object.geometry.dispose();
-        this.object.geometry = geometry;
+        for (const [data, material, order] of [[solid, resources.cutout, 0], [translucent, resources.translucent, 1]]) {
+            if (!data.empty) {
+                const mesh = new THREE.Mesh(data.to_geometry(), material);
+                mesh.renderOrder = order;
+                mesh.userData.cells = data.cells;
+                this.group.add(mesh);
+                this.meshes.push(mesh);
+            }
+        }
     }
 }

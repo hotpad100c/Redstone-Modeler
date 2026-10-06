@@ -4,6 +4,18 @@
 
 Modeler for redstone. Replacement for the old RS Editor. AKA "RSM."
 
+## This fork: real 3D and your own resource packs
+
+The main page (`index.html`) is now a real-time three.js editor. The old pre-rendered isometric editor is kept as `classic.html`; its saves are not compatible.
+
+- **Bring your own resource packs.** Nothing from Minecraft is bundled. Open *Resource packs*, add one or more `.zip` packs (or a folder), put them in order and press *Compile and use*.
+- **Stacking.** Packs higher in the list override packs below them, file by file, like in Minecraft. Block states are the union of what all packs describe, so a redstone visualisation pack that models `powered` for blocks the vanilla pack never textures makes that property show up.
+- **Block states** are read from the blockstate files (variants and multipart) and shown as dropdowns. A small table in `data/block_properties.json` adds vanilla properties that no pack file mentions.
+- **Cached locally.** The compiled result (texture atlas, flattened models, state index) is stored in the browser's IndexedDB and loaded automatically next time. *Export* gives a `.rmpack` file you can import again instead of re-compiling the original zips.
+- Left click places, right click removes, Alt+click picks the block under the cursor, `1`-`9` select the hotbar slot, `[` and `]` change the layer.
+
+Development: `npm test` (unit tests), `npm run lint`, `npm run test:e2e` (needs Playwright and Chromium). Tests use tiny synthetic packs generated in `tests/fixtures.mjs`.
+
 ## Why not RS Editor?
 [RS Editor](https://github.com/11-90-an/rseditor) has been *the* tool for sending redstone diagrams in chat, usually Discord. However, it has been lacking a large number of features, which RSM attempts to fix.
 
@@ -46,9 +58,3 @@ Either go on the [project Discord](https://discord.gg/2Qndd5v6JF) (for minor pro
 
 ## RS Editor
 Thanks to RS Editor for the inspiration of this project. Code was consulted, but I decided that it was not very usable since this one had completely different logic, and p5.js is unneccesary. The old project can be found at the [RS Editor github page](https://github.com/11-90-an/rseditor).
-
-## 3D version (work in progress)
-
-`3d.html` is the new three.js based editor that will load user-supplied Minecraft resource packs.
-Left click places a block, right click removes it, drag rotates the camera.
-Run locally with `python3 -m http.server` and open `/3d.html`.

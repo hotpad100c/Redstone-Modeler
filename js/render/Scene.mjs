@@ -15,8 +15,8 @@ export class Scene {
     constructor(canvas, world) {
         this.canvas = canvas;
         this.world = world;
-        this.layer = 0;
-        /** @type {(x: number, y: number, z: number, button: number) => void} */
+        this.layer = world.size.y - 1;
+        /** @type {(x: number, y: number, z: number, button: number, event: PointerEvent) => void} */
         this.on_click = () => {};
 
         this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -30,11 +30,10 @@ export class Scene {
         this.controls.target.set(sx / 2, 0, sz / 2);
         this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
         this.controls.enableDamping = false;
-        this.camera.zoom = 1;
         this.controls.update();
 
         this.world_mesh = new WorldMesh(world);
-        this.scene.add(this.world_mesh.object);
+        this.scene.add(this.world_mesh.group);
 
         this.floor_grid = new THREE.GridHelper(Math.max(sx, sz), Math.max(sx, sz), 0xffffff, 0x808080);
         this.floor_grid.position.set(sx / 2, 0, sz / 2);
@@ -54,7 +53,7 @@ export class Scene {
 
         this.layer_marker = new THREE.Mesh(
             new THREE.PlaneGeometry(sx, sz).rotateX(-Math.PI / 2).translate(sx / 2, 0, sz / 2),
-            new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.15, depthWrite: false }),
+            new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.12, depthWrite: false }),
         );
         this.scene.add(this.layer_marker);
 
@@ -67,17 +66,24 @@ export class Scene {
 
         this.raycaster = new THREE.Raycaster();
         this._bind_pointer();
-        this.set_layer(0);
+        this.set_layer(this.layer);
         new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
         this.resize();
         this._frame = this._frame.bind(this);
         requestAnimationFrame(this._frame);
     }
 
+    /** @param {import("./Resources.mjs").Resources|null} resources */
+    set_resources(resources) {
+        this.world_mesh.set_resources(resources);
+    }
+
+    /** Highest layer (y level) that is shown and can be built on. */
     set_layer(layer) {
         this.layer = Math.max(0, Math.min(this.world.size.y - 1, layer));
         this.world_mesh.set_layer(this.layer);
         this.layer_marker.position.y = this.layer + 1;
+        this.layer_marker.visible = this.layer < this.world.size.y - 1;
         this.hover.visible = false;
     }
 
@@ -103,7 +109,7 @@ export class Scene {
      * @param {number} client_x
      * @param {number} client_y
      * @returns {{hit: number[]|null, place: number[]|null}}
-     *   `hit` is the existing block under the cursor, `place` the empty cell next to the hit face.
+     *   `hit` is the block under the cursor, `place` the empty cell next to the hit face.
      */
     pick(client_x, client_y) {
         const rect = this.canvas.getBoundingClientRect();
@@ -113,26 +119,26 @@ export class Scene {
         );
         this.raycaster.setFromCamera(ndc, this.camera);
         this.world_mesh.update();
-        const hits = this.raycaster.intersectObjects([this.world_mesh.object, this.floor_plane], false);
+        const hits = this.raycaster.intersectObjects([...this.world_mesh.meshes, this.floor_plane], false);
         if (hits.length === 0) {
             return { hit: null, place: null };
         }
-        const { point, face, object } = hits[0];
+        const { point, face, object, faceIndex } = hits[0];
         if (object === this.floor_plane) {
             const place = [Math.floor(point.x), 0, Math.floor(point.z)];
-            return { hit: null, place: this.world.in_bounds(...place) ? place : null };
+            return { hit: null, place: this._buildable(place) ? place : null };
         }
+        const hit = object.userData.cells[faceIndex >> 1];
         const n = face.normal;
-        const hit = [
-            Math.floor(point.x - n.x * 0.5),
-            Math.floor(point.y - n.y * 0.5),
-            Math.floor(point.z - n.z * 0.5),
-        ];
-        const place = [hit[0] + n.x, hit[1] + n.y, hit[2] + n.z];
-        return {
-            hit,
-            place: this.world.in_bounds(...place) && place[1] <= this.layer ? place : null,
-        };
+        const axis = [Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)].reduce((best, v, i, all) => v > all[best] ? i : best, 0);
+        const step = [0, 0, 0];
+        step[axis] = Math.sign([n.x, n.y, n.z][axis]);
+        const place = hit.map((v, i) => v + step[i]);
+        return { hit, place: this._buildable(place) ? place : null };
+    }
+
+    _buildable(cell) {
+        return this.world.in_bounds(...cell) && cell[1] <= this.layer && !this.world.get(...cell);
     }
 
     _bind_pointer() {
@@ -145,9 +151,9 @@ export class Scene {
             if (down && down.button === e.button
                 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < CLICK_MOVE_LIMIT) {
                 const { hit, place } = this.pick(e.clientX, e.clientY);
-                const target = e.button === 2 ? hit : place;
+                const target = e.button === 2 || e.altKey ? hit : place;
                 if (target) {
-                    this.on_click(target[0], target[1], target[2], e.button);
+                    this.on_click(target[0], target[1], target[2], e.button, e);
                 }
             }
             down = null;
@@ -166,6 +172,16 @@ export class Scene {
         this.canvas.addEventListener("pointerleave", () => {
             this.hover.visible = false;
         });
+    }
+
+    /** @returns {Promise<Blob>} PNG of the current view */
+    to_blob() {
+        this.hover.visible = false;
+        this.layer_marker.visible = false;
+        this.world_mesh.update();
+        this.renderer.render(this.scene, this.camera);
+        this.layer_marker.visible = true;
+        return new Promise(resolve => this.canvas.toBlob(resolve, "image/png"));
     }
 
     _frame() {
