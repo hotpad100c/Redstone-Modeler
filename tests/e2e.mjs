@@ -300,6 +300,31 @@ await step("look-alike states can be hidden", async () => {
     });
 });
 
+await step("eraser tool and clear all", async () => {
+    const world_size = () => page.evaluate(() => window.__rm.world.blocks.size);
+    assert.equal(await world_size(), 5);
+    const pos = await page.evaluate(() => window.__rm.scene.screen_position(10, 0, 10));
+    await page.click("#erase_button");
+    assert.equal(await page.evaluate(() => window.__rm.scene.erase), true);
+    await page.mouse.click(pos.x, pos.y);
+    assert.equal(await world_size(), 4, "left click erases while the eraser is on");
+    await page.keyboard.press("e");
+    assert.equal(await page.evaluate(() => window.__rm.scene.erase), false);
+    // Clear needs a second click
+    await page.click("#clear_button");
+    assert.equal(await world_size(), 4);
+    assert.equal(await page.textContent("#clear_button"), "Sure? Click again");
+    await page.click("#clear_button");
+    assert.equal(await world_size(), 0);
+    assert.equal(await page.textContent("#clear_button"), "Clear");
+    // Put the blocks back for the next steps
+    await page.evaluate(() => {
+        for (const [x, y, z] of [[10, 0, 10], [11, 0, 10], [12, 0, 10], [12, 1, 10], [13, 1, 10]]) {
+            window.__rm.world.set(x, y, z, { name: "minecraft:stone", props: {} });
+        }
+    });
+});
+
 await step("save code round trip", async () => {
     await page.click("#save_button");
     await page.waitForFunction(() => document.querySelector("#save_button").textContent === "Code copied");

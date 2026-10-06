@@ -46,6 +46,8 @@ export class Scene {
         /** @type {() => void} Called when the view mode or the plane changes */
         this.on_view_change = () => {};
         this.animation = null;
+        /** Eraser tool: left click targets the block under the cursor instead of the empty cell next to it */
+        this.erase = false;
 
         this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
         this.scene = new THREE.Scene();
@@ -306,7 +308,7 @@ export class Scene {
             if (down && down.button === e.button
                 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < CLICK_MOVE_LIMIT) {
                 const { hit, place } = this.pick(e.clientX, e.clientY);
-                const target = e.button === 2 || e.altKey ? hit : place;
+                const target = e.button === 2 || e.altKey || this.erase ? hit : place;
                 if (target) {
                     this.on_click(target[0], target[1], target[2], e.button, e);
                 }
@@ -318,10 +320,12 @@ export class Scene {
                 this.hover.visible = false;
                 return;
             }
-            const { place } = this.pick(e.clientX, e.clientY);
-            this.hover.visible = place !== null;
-            if (place) {
-                this.hover.position.set(place[0] + 0.5, place[1] + 0.5, place[2] + 0.5);
+            const { hit, place } = this.pick(e.clientX, e.clientY);
+            const cell = this.erase ? hit : place;
+            this.hover.material.color.set(this.erase ? 0xff4040 : 0xffff00);
+            this.hover.visible = cell !== null;
+            if (cell) {
+                this.hover.position.set(cell[0] + 0.5, cell[1] + 0.5, cell[2] + 0.5);
             }
         });
         this.canvas.addEventListener("pointerleave", () => {

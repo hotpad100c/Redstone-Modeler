@@ -69,8 +69,36 @@ function flash(button, message, error = false) {
     });
 }
 
+function set_eraser(on) {
+    scene.erase = on;
+    $("erase_button").classList.toggle("selected", on);
+}
+$("erase_button").addEventListener("click", () => set_eraser(!scene.erase));
+$("block_list").addEventListener("click", () => set_eraser(false));
+
+// Clearing needs a second click so a stray click cannot wipe the model
+let clear_timer = null;
+$("clear_button").addEventListener("click", () => {
+    const button = $("clear_button");
+    if (clear_timer === null) {
+        button.textContent = "Sure? Click again";
+        button.classList.add("error");
+        clear_timer = setTimeout(reset_clear_button, 3000);
+    }
+    else {
+        world.clear();
+        reset_clear_button();
+    }
+});
+function reset_clear_button() {
+    clearTimeout(clear_timer);
+    clear_timer = null;
+    $("clear_button").textContent = "Clear";
+    $("clear_button").classList.remove("error");
+}
+
 scene.on_click = (x, y, z, button, event) => {
-    if (button === 2) {
+    if (button === 2 || (scene.erase && button === 0 && !event.altKey)) {
         world.remove(x, y, z);
     }
     else if (event.altKey) {
@@ -115,7 +143,11 @@ window.addEventListener("keydown", (e) => {
         return;
     }
     else if (/^Digit[1-9]$/.test(e.code)) {
+        set_eraser(false);
         picker.set_slot(Number(e.code.slice(5)) - 1);
+    }
+    else if (e.code === "KeyE") {
+        set_eraser(!scene.erase);
     }
     else if (e.key === "]") {
         scene.move_plane(1);

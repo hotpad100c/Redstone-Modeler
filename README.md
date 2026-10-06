@@ -13,6 +13,7 @@ The main page (`index.html`) is now a real-time three.js editor. The old pre-ren
 - **Block states** are read from the blockstate files (variants and multipart) and shown as dropdowns. A small table in `data/block_properties.json` adds vanilla properties that no pack file mentions.
 - **Cached locally.** The compiled result (texture atlas, flattened models, state index) is stored in the browser's IndexedDB and loaded automatically next time. *Export* gives a `.rmpack` file you can import again instead of re-compiling the original zips.
 - Left click places, right click removes, Alt+click picks the block under the cursor, `1`-`9` select the hotbar slot.
+- **Eraser and clear.** Right click removes a block; the *Eraser* button (or `E`) makes left click remove too, which helps on touch screens. *Clear* wipes the whole model after a second click to confirm.
 - **Axis ball** (top right, like Blender): click an axis to look along it, click the centre for the default view. Numpad `7`/`1`/`3` give top/front/right views, with Ctrl the opposite side, `5` the default view.
 - **2D views.** Looking along an axis turns the editor into a 2D editor: a plane through the middle of the cube is where you place blocks, `-` / `+` (or `[` / `]`) move it. Blocks in front of the plane are hidden and blocks behind it are dimmed. Rotating the camera leaves the 2D view.
 - **State bar.** The *States* button above the hotbar shows a picture of every state combination of the held block. Click one to use it, filter by property, or hide combinations that look the same.

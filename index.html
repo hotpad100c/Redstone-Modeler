@@ -14,6 +14,8 @@
         <div id="top_bar">
             <button type="button" id="pack_button">Resource packs</button>
             <span id="pack_summary" class="note">none loaded</span>
+            <button type="button" id="erase_button" title="Eraser: left click removes blocks (E)">Eraser</button>
+            <button type="button" id="clear_button" title="Remove every block">Clear</button>
             <button type="button" id="image_button">Copy image</button>
             <button type="button" id="save_button">Save</button>
             <input type="text" id="load_input" size="8" placeholder="code" />
@@ -35,7 +37,7 @@
                     <p>Blocks, models and block states are read from the resource packs you provide. Nothing is uploaded; the compiled result is cached in this browser.</p>
                     <button type="button" id="onboarding_button">Import resource packs</button>
                 </div>
-                <div id="help">Click: place · Right click: remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · Axis ball: 2D views, then [ ] moves the plane</div>
+                <div id="help">Click: place · Right click or Eraser (E): remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · Axis ball: 2D views, then [ ] moves the plane</div>
             </div>
             <div id="sidebar">
                 <input type="search" id="block_search" placeholder="Search blocks" />
