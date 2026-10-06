@@ -17,3 +17,5 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - name: The site assembles
+        run: scripts/build-site.sh /tmp/site ci

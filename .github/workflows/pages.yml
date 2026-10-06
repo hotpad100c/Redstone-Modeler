@@ -23,12 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Assemble static site
-        run: |
-          mkdir _site
-          cp -r index.html classic.html app.css style.css js lib lzma data assets logo_*.mp4 logo_repeat.gif _site/
-          # Shown in the page so a bug report says which build it came from
-          sed -i "s|<meta name=\"build\" content=\"dev\" />|<meta name=\"build\" content=\"${GITHUB_SHA::7}\" />|" _site/index.html
-          grep -q "content=\"${GITHUB_SHA::7}\"" _site/index.html
+        run: scripts/build-site.sh _site "${GITHUB_SHA::7}"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

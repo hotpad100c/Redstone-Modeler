@@ -22,6 +22,8 @@ The main page (`index.html`) is now a real-time three.js editor. The old pre-ren
 - **2D views.** Looking along an axis turns the editor into a 2D editor: a plane through the middle of the cube is where you place blocks, `-` / `+` (or `[` / `]`) move it. Blocks in front of the plane are hidden and blocks behind it are dimmed. Rotating the camera leaves the 2D view.
 - **State bar.** The *States* button above the hotbar shows a picture of every state combination of the held block. Click one to use it, filter by property, or hide combinations that look the same.
 
+Deployment: `scripts/build-site.sh <folder> <build id>` assembles the site and adds the build id to the address of every file of the editor, so a visitor never gets new pages with old cached modules. GitHub Pages runs it on every push to `main`; `SITE_ROOT=<folder> npm run test:e2e` tests an assembled site.
+
 Development: `npm test` (unit tests), `npm run lint`, `npm run test:e2e` (needs Playwright and Chromium; `BROWSER=webkit npm run test:e2e` runs it in WebKit if installed). Tests use tiny synthetic packs generated in `tests/fixtures.mjs`.
 
 ## Why not RS Editor?
