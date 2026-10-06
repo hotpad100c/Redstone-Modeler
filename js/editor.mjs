@@ -143,7 +143,7 @@ async function use_pack(bytes) {
     $("onboarding").hidden = true;
 }
 
-const pack_panel = new PackPanel({ dialog: $("pack_dialog"), on_use: use_pack, extra_properties: {}, fallback: undefined });
+const pack_panel = new PackPanel({ dialog: $("pack_dialog"), on_use: use_pack, extra_properties: {}, fallback: undefined, get_languages: () => (settings.search_language ? [settings.search_language] : []) });
 // Data files used when compiling are fetched in the background, so a slow request cannot block the interface
 pack_panel.ready = Promise.all([
     fetch("data/block_properties.json").then(r => r.json()).catch(() => ({})),

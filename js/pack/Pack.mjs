@@ -1,6 +1,10 @@
 import { strFromU8, unzipSync } from "../../lib/fflate.module.js";
 
 const WANTED = /\.(json|png|mcmeta)$/i;
+// Mods that carry other mods inside them (Jar-in-Jar)
+const NESTED_JAR = /^META-INF\/(jars|jarjar)\/[^/]+\.jar$/i;
+const MAX_NESTED = 32;
+const MAX_NESTED_BYTES = 256 * 1024 * 1024;
 
 /**
  * Lenient JSON parser. Minecraft reads JSON leniently, so packs in the wild
@@ -136,12 +140,46 @@ export class Pack {
     /**
      * @param {string} name
      * @param {Uint8Array} bytes
+     * @param {object} [options]
+     * @param {boolean} [options.jar] A mod or game jar: only what is under `assets/` is read, and so are the
+     *   mods inside it. The classes, recipes and everything else are skipped without being unpacked.
      */
-    static from_zip(name, bytes) {
+    static from_zip(name, bytes, { jar = false } = {}) {
+        if (!jar) {
+            const raw = unzipSync(bytes, {
+                filter: file => WANTED.test(file.name) && !file.name.endsWith("/"),
+            });
+            return new Pack(name, normalize_entries(Object.entries(raw).map(([path, data]) => ({ path, data }))));
+        }
+        const wanted = file => WANTED.test(file.name) && file.name.startsWith("assets/");
+        let nested_count = 0;
+        let nested_bytes = 0;
         const raw = unzipSync(bytes, {
-            filter: file => WANTED.test(file.name) && !file.name.endsWith("/"),
+            filter: (file) => {
+                if (NESTED_JAR.test(file.name)) {
+                    nested_bytes += file.originalSize;
+                    return ++nested_count <= MAX_NESTED && nested_bytes <= MAX_NESTED_BYTES;
+                }
+                return wanted(file);
+            },
         });
-        return new Pack(name, normalize_entries(Object.entries(raw).map(([path, data]) => ({ path, data }))));
+        const entries = [];
+        for (const [path, data] of Object.entries(raw)) {
+            if (NESTED_JAR.test(path)) {
+                // One level only; a bad inner jar must not spoil the rest
+                try {
+                    const inner = unzipSync(data, { filter: wanted });
+                    entries.push(...Object.entries(inner).map(([inner_path, inner_data]) => ({ path: inner_path, data: inner_data })));
+                }
+                catch (error) {
+                    console.warn(`Could not read ${path} inside ${name}`, error);
+                }
+            }
+            else {
+                entries.push({ path, data });
+            }
+        }
+        return new Pack(name, normalize_entries(entries));
     }
 
     /**

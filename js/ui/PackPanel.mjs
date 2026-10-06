@@ -1,6 +1,7 @@
 import { t } from "../i18n/i18n.mjs";
 import { fingerprint, hash_bytes, delete_pack, get_active, get_pack_bytes, list_packs, put_pack, request_persistence, set_active } from "../cache/PackCache.mjs";
-import { read_rmpack } from "../pack/Rmpack.mjs";
+import { is_rmpack, read_rmpack } from "../pack/Rmpack.mjs";
+import { fetch_vanilla, list_versions } from "../pack/Vanilla.mjs";
 import { Pack } from "../pack/Pack.mjs";
 import { compile } from "../pack/Loader.mjs";
 
@@ -25,8 +26,12 @@ export class PackPanel {
      * @param {(bytes: Uint8Array, id: string) => Promise<void>} options.on_use Called with compiled bytes to activate
      * @param {Record<string, Record<string, string[]>>} options.extra_properties
      * @param {{blockstates: object, models: object}} [options.fallback]
+     * @param {() => string[]} [options.get_languages] Languages whose block names to get along with the game
+     * @param {typeof fetch} [options.fetch_fn]
      */
-    constructor({ dialog, on_use, extra_properties, fallback }) {
+    constructor({ dialog, on_use, extra_properties, fallback, get_languages = () => [], fetch_fn = (...args) => fetch(...args) }) {
+        this.get_languages = get_languages;
+        this.fetch_fn = fetch_fn;
         this.dialog = dialog;
         this.on_use = on_use;
         this.extra_properties = extra_properties;
@@ -58,6 +63,22 @@ export class PackPanel {
             this.add_folder([...e.target.files]);
             e.target.value = "";
         });
+        this.vanilla_select = $("vanilla_version");
+        this.vanilla_button = $("vanilla_button");
+        this.vanilla_button.addEventListener("click", () => this.add_vanilla());
+        // The list of versions is fetched when the list is first used, not when the page or the dialog opens
+        let versions_requested = false;
+        const load_versions = () => {
+            if (!versions_requested) {
+                versions_requested = true;
+                this._fill_versions().catch(() => {
+                    versions_requested = false;
+                });
+            }
+        };
+        // Not on focus: the dialog focuses it when it opens, and nothing should be asked of Mojang before a click
+        this.vanilla_select.addEventListener("pointerdown", load_versions);
+        this.vanilla_select.addEventListener("keydown", load_versions);
         $("pack_close").addEventListener("click", () => dialog.close());
         this.compile_button.addEventListener("click", () => this.compile());
         dialog.addEventListener("dragover", e => e.preventDefault());
@@ -91,12 +112,17 @@ export class PackPanel {
         for (const file of files) {
             try {
                 const bytes = new Uint8Array(await file.arrayBuffer());
-                if (/\.(rmpack|rmmodel)$/i.test(file.name)) {
-                    await this._store_and_use(bytes, [{ name: file.name, size: file.size, lastModified: file.lastModified }], file.name.replace(/\.(rmpack|rmmodel)$/i, ""));
+                const name = file.name.replace(/(\.(rmpack|rmmodel|zip|jar))+$/i, "");
+                // By content, not by name: downloads and chats rename files (`x.rmpack.zip`)
+                if (is_rmpack(bytes)) {
+                    await this._store_and_use(bytes, [{ name: file.name, size: file.size, lastModified: file.lastModified }], name, await hash_bytes(bytes));
+                    if (!/\.(rmpack|rmmodel)$/i.test(file.name)) {
+                        this.set_status(t("pack.compiled_found", { name: file.name }));
+                    }
                     continue;
                 }
-                const name = file.name.replace(/\.zip$/i, "");
-                this.sources.push({ name, size: file.size, lastModified: file.lastModified, pack: Pack.from_zip(name, bytes) });
+                const pack = Pack.from_zip(name, bytes, { jar: /\.jar$/i.test(file.name) });
+                this.sources.push({ name, size: file.size, lastModified: file.lastModified, pack });
                 if (!this.name_input.value) {
                     this.name_input.value = name;
                 }
@@ -107,6 +133,53 @@ export class PackPanel {
             }
         }
         this._render_sources();
+    }
+
+    async _fill_versions() {
+        const { versions } = await list_versions(this.fetch_fn);
+        const chosen = this.vanilla_select.value;
+        this.vanilla_select.replaceChildren(this.vanilla_select.options[0]);
+        for (const { id } of versions) {
+            this.vanilla_select.appendChild(Object.assign(document.createElement("option"), { value: id, textContent: id }));
+        }
+        this.vanilla_select.value = chosen;
+    }
+
+    /** Gets the game's own files from Mojang and puts them at the bottom of the stack. */
+    async add_vanilla() {
+        this.vanilla_button.disabled = true;
+        const version = this.vanilla_select.value;
+        try {
+            const mb = bytes => (bytes / 1048576).toFixed(1);
+            const result = await fetch_vanilla({
+                version,
+                languages: this.get_languages(),
+                fetch_fn: this.fetch_fn,
+                progress: (stage, done = 0, total = 0, id = version) => {
+                    const messages = {
+                        versions: () => t("pack.vanilla_versions"),
+                        jar: () => t("pack.vanilla_jar", { version: id, done: mb(done), total: mb(total) }),
+                        read: () => t("pack.vanilla_read", { version: id }),
+                        languages: () => t("pack.vanilla_languages"),
+                    };
+                    this.set_status(messages[stage]());
+                },
+            });
+            this.sources = this.sources.filter(source => source.name !== result.name);
+            this.sources.push({ name: result.name, size: 0, lastModified: 0, pack: result.pack });
+            if (!this.name_input.value) {
+                this.name_input.value = result.name;
+            }
+            this._render_sources();
+            this.set_status(t("pack.vanilla_added", { version: result.version }));
+        }
+        catch (e) {
+            console.error(e);
+            this.set_status(t("pack.vanilla_failed", { reason: e.message }), true);
+        }
+        finally {
+            this.vanilla_button.disabled = false;
+        }
     }
 
     /** @param {File[]} files */
@@ -148,7 +221,9 @@ export class PackPanel {
         }
         catch (e) {
             console.error(e);
-            this.set_status(t("pack.compile_failed", { reason: e.message }), true);
+            this.set_status(e.code === "no_assets"
+                ? t("pack.no_assets", { names: this.sources.map(source => source.name).join(", ") })
+                : t("pack.compile_failed", { reason: e.message }), true);
         }
         finally {
             this.compile_button.disabled = false;
@@ -169,9 +244,10 @@ export class PackPanel {
 
     async _store_and_use(bytes, sources, name, known_id = null) {
         const id = known_id ?? await fingerprint(sources);
+        // Use it first: a pack that cannot be loaded must not end up in the library as the active one
+        await this.on_use(bytes, id);
         await put_pack({ id, name, created: Date.now(), size: bytes.length, sources: sources.map(s => s.name) }, bytes);
         await set_active(id);
-        await this.on_use(bytes, id);
         this.active = id;
         const persisted = await request_persistence();
         this.storage_note.textContent = persisted

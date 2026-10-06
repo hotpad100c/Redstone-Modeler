@@ -30,6 +30,34 @@ export function write_rmpack(data, atlas_png, colormaps = {}, lang = {}, extra =
     return zipSync(files, { level: 9 });
 }
 
+/**
+ * Whether bytes are a compiled pack (`.rmpack`, `.rmmodel`), whatever the file is called:
+ * a zip with `data.json` and `atlas.png` at the top. Browsers and chat apps rename files.
+ * @param {Uint8Array} bytes
+ */
+export function is_rmpack(bytes) {
+    return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && has_entries(bytes, ["data.json", "atlas.png"]);
+}
+
+/** Looks at the names in the zip without unpacking anything. */
+function has_entries(bytes, names) {
+    const seen = new Set();
+    try {
+        unzipSync(bytes, {
+            filter: (file) => {
+                if (names.includes(file.name)) {
+                    seen.add(file.name);
+                }
+                return false;
+            },
+        });
+    }
+    catch {
+        return false;
+    }
+    return names.every(name => seen.has(name));
+}
+
 const MAX_UNPACKED = 256 * 1024 * 1024;
 const MAX_FILES = 1000;
 
