@@ -46,3 +46,9 @@ Either go on the [project Discord](https://discord.gg/2Qndd5v6JF) (for minor pro
 
 ## RS Editor
 Thanks to RS Editor for the inspiration of this project. Code was consulted, but I decided that it was not very usable since this one had completely different logic, and p5.js is unneccesary. The old project can be found at the [RS Editor github page](https://github.com/11-90-an/rseditor).
+
+## 3D version (work in progress)
+
+`3d.html` is the new three.js based editor that will load user-supplied Minecraft resource packs.
+Left click places a block, right click removes it, drag rotates the camera.
+Run locally with `python3 -m http.server` and open `/3d.html`.
