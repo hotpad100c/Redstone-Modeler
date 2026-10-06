@@ -7,18 +7,31 @@ const DB_NAME = "redstone-modeler";
 const INFO = "packs";
 const BLOBS = "blobs";
 const META = "meta";
+const OPEN_TIMEOUT_MS = 5000;
 
 /** @returns {Promise<IDBDatabase>} */
 function open() {
     return new Promise((resolve, reject) => {
+        // Some browsers never answer when storage is blocked; do not wait forever
+        const timer = setTimeout(() => reject(new Error("Browser storage did not respond")), OPEN_TIMEOUT_MS);
         const request = indexedDB.open(DB_NAME, 1);
         request.onupgradeneeded = () => {
             request.result.createObjectStore(INFO, { keyPath: "id" });
             request.result.createObjectStore(BLOBS);
             request.result.createObjectStore(META);
         };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            clearTimeout(timer);
+            resolve(request.result);
+        };
+        request.onerror = () => {
+            clearTimeout(timer);
+            reject(request.error);
+        };
+        request.onblocked = () => {
+            clearTimeout(timer);
+            reject(new Error("Browser storage is blocked by another tab"));
+        };
     });
 }
 

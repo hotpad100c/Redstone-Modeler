@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "../../lib/three.module.min.js";
 import { OrbitControls } from "../../lib/OrbitControls.js";
 import { AxisGizmo } from "./AxisGizmo.mjs";
 import { WorldMesh } from "./WorldMesh.mjs";

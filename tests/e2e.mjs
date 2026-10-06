@@ -33,18 +33,19 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, resolve));
 const url = `http://localhost:${server.address().port}/`;
 
-let chromium;
+let playwright;
 try {
-    ({ chromium } = await import("playwright"));
+    playwright = await import("playwright");
 }
 catch {
-    ({ chromium } = createRequire(process.env.PLAYWRIGHT_MODULES ?? "/node-tools/node_modules/")("playwright"));
+    playwright = createRequire(process.env.PLAYWRIGHT_MODULES ?? "/node-tools/node_modules/")("playwright");
 }
 
-const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium",
-    args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader"],
-});
+// BROWSER=webkit runs the same test in WebKit, the engine of Safari
+const engine = process.env.BROWSER ?? "chromium";
+const browser = await playwright[engine].launch(engine === "chromium"
+    ? { executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium", args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader"] }
+    : {});
 const context = await browser.newContext({ viewport: { width: 1100, height: 760 }, permissions: ["clipboard-read", "clipboard-write"] });
 const page = await context.newPage();
 const problems = [];
@@ -529,6 +530,63 @@ await step("mod assets: a picked assets folder and a deep zip are both found", a
     const quads = await page.evaluate(() => window.__rm.resources.pack.geometry("mymod:gizmo", {}).quads.length);
     assert.equal(quads, 6);
     await page.click("#pack_close");
+});
+
+await step("a damaged saved pack is reported on the page and the interface still works", async () => {
+    await page.evaluate(() => new Promise((resolve, reject) => {
+        const request = indexedDB.open("redstone-modeler");
+        request.onsuccess = () => {
+            const db = request.result;
+            const tx = db.transaction(["meta", "blobs"], "readwrite");
+            const active = tx.objectStore("meta").get("active");
+            active.onsuccess = () => tx.objectStore("blobs").put(new Uint8Array([1, 2, 3]), active.result);
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+            tx.onerror = () => reject(tx.error);
+        };
+    }));
+    await page.reload();
+    await page.waitForFunction(() => window.__rm);
+    await page.waitForFunction(() => !document.querySelector("#onboarding_note").hidden);
+    assert.match(await page.textContent("#onboarding_note"), /could not be loaded/);
+    assert.equal(await page.locator("#onboarding").isVisible(), true);
+    // The buttons work, and importing the pack again recovers
+    await page.click("#pack_button");
+    await page.setInputFiles("#pack_file", [{ name: "Test stack.rmpack", mimeType: "application/zip", buffer: rmpack_bytes }]);
+    await page.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+    await page.click("#pack_close");
+    assert.equal(await page.locator("#onboarding").isVisible(), false);
+});
+
+await step("problems are shown on the page: no WebGL 2, a broken module, a missing file", async () => {
+    const banner_of = async (setup) => {
+        const other = await browser.newPage();
+        await setup(other);
+        await other.goto(url);
+        await other.waitForSelector("#error_banner", { timeout: 15000 });
+        const result = { text: await other.textContent("#error_banner"), started: await other.evaluate(() => Boolean(window.__rm)) };
+        await other.close();
+        return result;
+    };
+    const no_webgl2 = await banner_of(other => other.addInitScript(() => {
+        const original = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+            return type === "webgl2" || type === "webgl" ? null : original.call(this, type, ...rest);
+        };
+    }));
+    assert.match(no_webgl2.text, /does not support WebGL 2/);
+    assert.match(no_webgl2.text, /WebGL2: false/);
+    assert.equal(no_webgl2.started, false);
+
+    const broken = await banner_of(other => other.route("**/js/pack/Atlas.mjs", route => route.fulfill({ contentType: "text/javascript", body: "export const broken = ;" })));
+    assert.match(broken.text, /could not start/);
+    assert.equal(broken.started, false);
+
+    const missing = await banner_of(other => other.route("**/lib/three.module.min.js", route => route.fulfill({ status: 404, body: "" })));
+    assert.match(missing.text, /could not start/);
+    assert.match(missing.text, /build /);
 });
 
 await step("phone: quick repeated taps place blocks and never zoom the page", async () => {

@@ -16,12 +16,13 @@ The main page (`index.html`) is now a real-time three.js editor. The old pre-ren
 - **Eraser and clear.** Right click removes a block; the *Eraser* button (or `E`) makes left click remove too, which helps on touch screens. *Clear* wipes the whole model after a second click to confirm.
 - **Settings.** The size of the model space (1 to 64 per side), the background colour and the colour and opacity of the 2D plane. They are remembered in the browser; save codes carry the size of the model space, so loading one resizes the space.
 - **Mods and odd folder layouts.** The `assets` folder is looked for level by level (`assets/`, `Pack/assets/`, `repo/src/main/resources/assets/`, ...), so a zip or folder copied from a mod repository works, and so does picking the `assets` folder itself. Without an `assets` folder, folders that hold `blockstates`, `models` or `textures` are used. Several namespaces next to each other (`assets/minecraft`, `assets/create`, ...) stay separate, models and textures can refer to each other (`create:block/cog` with a `minecraft:block/cube_all` parent), and the block list gets a namespace filter.
+- **Browsers.** Needs a browser with ES modules, top-level `await` and WebGL 2: Safari 15 or newer, current Chrome, Firefox and Edge. If the editor cannot start, the page shows a red banner with the reason, the browser and the build id, instead of staying dead. iOS cannot pick folders, so use a zip there.
 - **Phones.** Double-tap zoom and page pinch zoom are off, so quick repeated taps place blocks; pinching inside the model view still zooms the camera.
 - **Axis ball** (top right, like Blender): click an axis to look along it, click the centre for the default view. Numpad `7`/`1`/`3` give top/front/right views, with Ctrl the opposite side, `5` the default view.
 - **2D views.** Looking along an axis turns the editor into a 2D editor: a plane through the middle of the cube is where you place blocks, `-` / `+` (or `[` / `]`) move it. Blocks in front of the plane are hidden and blocks behind it are dimmed. Rotating the camera leaves the 2D view.
 - **State bar.** The *States* button above the hotbar shows a picture of every state combination of the held block. Click one to use it, filter by property, or hide combinations that look the same.
 
-Development: `npm test` (unit tests), `npm run lint`, `npm run test:e2e` (needs Playwright and Chromium). Tests use tiny synthetic packs generated in `tests/fixtures.mjs`.
+Development: `npm test` (unit tests), `npm run lint`, `npm run test:e2e` (needs Playwright and Chromium; `BROWSER=webkit npm run test:e2e` runs it in WebKit if installed). Tests use tiny synthetic packs generated in `tests/fixtures.mjs`.
 
 ## Why not RS Editor?
 [RS Editor](https://github.com/11-90-an/rseditor) has been *the* tool for sending redstone diagrams in chat, usually Discord. However, it has been lacking a large number of features, which RSM attempts to fix.

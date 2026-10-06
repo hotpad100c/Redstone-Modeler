@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "../../lib/three.module.min.js";
 
 /** Vertex shading is multiplied with sRGB textures, so convert to the linear space three.js expects. */
 const to_linear = v => v ** 2.2;
