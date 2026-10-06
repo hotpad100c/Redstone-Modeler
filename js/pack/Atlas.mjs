@@ -76,6 +76,59 @@ function yield_to_ui() {
 }
 
 /**
+ * Shelf packing, tallest first. Gives every entry a position `x`, `y` (inside its one pixel border).
+ * @param {{w: number, h: number}[]} entries
+ * @returns {{width: number, height: number}}
+ */
+export function layout(entries) {
+    entries.sort((a, b) => b.h - a.h || b.w - a.w);
+    const area = entries.reduce((sum, e) => sum + (e.w + 2) * (e.h + 2), 0);
+    const widest = Math.max(...entries.map(e => e.w + 2));
+    const width = next_pow2(Math.max(widest, Math.ceil(Math.sqrt(area * 1.15))));
+    let x = 0;
+    let y = 0;
+    let row = 0;
+    for (const entry of entries) {
+        if (x + entry.w + 2 > width) {
+            x = 0;
+            y += row;
+            row = 0;
+        }
+        entry.x = x + 1;
+        entry.y = y + 1;
+        x += entry.w + 2;
+        row = Math.max(row, entry.h + 2);
+    }
+    const height = next_pow2(y + row);
+    if (width > MAX_SIZE || height > MAX_SIZE) {
+        throw new Error(`Texture atlas would be ${width}x${height}; the resource packs have too many or too large textures`);
+    }
+    return { width, height };
+}
+
+/**
+ * Makes a smaller atlas out of some of the textures of an existing one. The textures are copied
+ * together with their border, so nothing has to be decoded again.
+ * @param {HTMLCanvasElement} source The existing atlas
+ * @param {Record<string, {x: number, y: number, w: number, h: number, opaque: boolean, translucent: boolean}>} textures Where they are in it
+ * @param {string[]} ids The textures to keep
+ */
+export async function repack_atlas(source, textures, ids) {
+    const entries = ids.map(id => ({ id, w: textures[id].w, h: textures[id].h }));
+    const { width, height } = layout(entries);
+    const canvas = make_canvas(width, height);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    const result = {};
+    for (const { id, w, h, x, y } of entries) {
+        const from = textures[id];
+        ctx.drawImage(source, from.x - 1, from.y - 1, w + 2, h + 2, x - 1, y - 1, w + 2, h + 2);
+        result[id] = { x, y, w, h, opaque: from.opaque, translucent: from.translucent };
+    }
+    return { atlas: { width, height, textures: result }, png: await canvas_to_png(canvas) };
+}
+
+/**
  * Stitches textures into one image. Animated textures (tall strips) keep their first frame.
  * Every texture gets a one pixel border of its own edge pixels so nearest filtering never bleeds.
  * @param {import("./PackStack.mjs").PackStack} stack
@@ -112,29 +165,7 @@ export async function build_atlas(stack, ids, progress = () => {}) {
         }
     }
 
-    // Shelf packing, tallest first
-    entries.sort((a, b) => b.h - a.h || b.w - a.w);
-    const area = entries.reduce((sum, e) => sum + (e.w + 2) * (e.h + 2), 0);
-    const widest = Math.max(...entries.map(e => e.w + 2));
-    const width = next_pow2(Math.max(widest, Math.ceil(Math.sqrt(area * 1.15))));
-    let x = 0;
-    let y = 0;
-    let row = 0;
-    for (const entry of entries) {
-        if (x + entry.w + 2 > width) {
-            x = 0;
-            y += row;
-            row = 0;
-        }
-        entry.x = x + 1;
-        entry.y = y + 1;
-        x += entry.w + 2;
-        row = Math.max(row, entry.h + 2);
-    }
-    const height = next_pow2(y + row);
-    if (width > MAX_SIZE || height > MAX_SIZE) {
-        throw new Error(`Texture atlas would be ${width}x${height}; the resource packs have too many or too large textures`);
-    }
+    const { width, height } = layout(entries);
 
     const canvas = make_canvas(width, height);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });

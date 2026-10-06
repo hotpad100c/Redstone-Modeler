@@ -729,6 +729,216 @@ await step("problems are shown on the page: no WebGL 2, a broken module, a missi
     assert.match(missing.text, /build /);
 });
 
+// --- sharing a model together with the resources it uses ---
+
+/** Same camera everywhere, so that two pages can be compared pixel by pixel */
+async function fixed_view(target) {
+    await target.evaluate(() => {
+        const { scene } = window.__rm;
+        const d = [0.4, 0.6, 0.7];
+        const n = Math.hypot(...d);
+        scene.camera.zoom = 1;
+        scene.camera.position.set(10 + d[0] / n * 60, 10 + d[1] / n * 60, 10 + d[2] / n * 60);
+        scene.controls.target.set(10, 10, 10);
+        scene.camera.updateProjectionMatrix();
+        scene.controls.update();
+    });
+    await target.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
+/** A number for everything the WebGL canvas shows, and how much of it is red */
+function picture_of(target) {
+    return target.evaluate(() => {
+        const src = document.getElementById("canvas3d");
+        const copy = document.createElement("canvas");
+        copy.width = src.width;
+        copy.height = src.height;
+        const ctx = copy.getContext("2d");
+        ctx.drawImage(src, 0, 0);
+        const { data } = ctx.getImageData(0, 0, copy.width, copy.height);
+        let hash = 2166136261;
+        let red = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            hash = Math.imul(hash ^ data[i] ^ (data[i + 1] << 8) ^ (data[i + 2] << 16), 16777619);
+            if (data[i] > 150 && data[i + 1] < 80 && data[i + 2] < 80) {
+                red++;
+            }
+        }
+        return { hash, red };
+    });
+}
+
+const SHARED_BLOCKS = [
+    [10, 0, 10, "minecraft:observer", { facing: "south", powered: "true" }],
+    [11, 0, 10, "minecraft:observer", { facing: "north", powered: "false" }],
+    [12, 0, 10, "minecraft:stone", {}],
+    [13, 0, 10, "minecraft:glass", {}],
+    [14, 0, 10, "minecraft:grass_block", {}],
+    [10, 0, 12, "minecraft:oak_fence", { north: "true" }],
+];
+
+async function fresh_page() {
+    const fresh = await browser.newContext({ locale: "en-US", viewport: { width: 1100, height: 760 }, permissions: ["clipboard-read", "clipboard-write"] });
+    const other = await fresh.newPage();
+    other.on("pageerror", e => problems.push(e.message));
+    await other.goto(url);
+    await other.waitForFunction(() => window.__rm);
+    return { fresh, other };
+}
+
+let sender_picture;
+let shared_code;
+let shared_file;
+
+await step("share: the size of what is shared depends on what is included", async () => {
+    await page.evaluate((blocks) => {
+        const { world } = window.__rm;
+        world.clear();
+        for (const [x, y, z, name, props] of blocks) {
+            world.set(x, y, z, { name, props });
+        }
+    }, SHARED_BLOCKS);
+    await fixed_view(page);
+    sender_picture = await picture_of(page);
+    assert.ok(sender_picture.red > 100, "the powered observer is red");
+
+    await page.click("#share_button");
+    const stats = {};
+    for (const scope of ["used", "all", "pack"]) {
+        await page.selectOption("#share_scope", scope);
+        await page.waitForFunction(s => window.__rm.share_panel.result?.stats && window.__rm.share_panel.scope.value === s && /characters/.test(document.getElementById("share_stats").textContent), scope);
+        stats[scope] = await page.evaluate(() => window.__rm.share_panel.result.stats);
+        assert.ok(stats[scope].code_length > stats[scope].bytes, `${scope}: base64 is longer than the bytes`);
+    }
+    assert.equal(stats.used.blocks, 5, "observer, stone, glass, grass block, fence");
+    assert.ok(stats.used.textures < stats.pack.textures, "fewer textures than the whole pack");
+    assert.ok(stats.used.bytes < stats.all.bytes || stats.used.bytes <= stats.pack.bytes);
+    assert.ok(stats.used.bytes < stats.pack.bytes, `${stats.used.bytes} bytes against ${stats.pack.bytes}`);
+    assert.ok(stats.used.models <= stats.all.models && stats.all.models <= stats.pack.models);
+    // Block names of every language only with the checkbox
+    const trimmed = await page.evaluate(() => window.__rm.share_panel.result.stats.parts.names);
+    await page.check("#share_all_languages");
+    await page.waitForFunction(() => /characters/.test(document.getElementById("share_stats").textContent));
+    assert.ok(await page.evaluate(() => window.__rm.share_panel.result.stats.parts.names) >= trimmed);
+    await page.uncheck("#share_all_languages");
+    // The warning says when a chat message is too short for the code
+    await page.selectOption("#share_scope", "used");
+    await page.waitForFunction(() => window.__rm.share_panel.scope.value === "used" && window.__rm.share_panel.result?.stats.blocks === 5);
+    const long = stats.used.code_length > 2000;
+    assert.equal((await page.textContent("#share_warning")).length > 0, long);
+    assert.match(await page.textContent("#share_parts"), /models and states .*pictures .*block names .*the model/);
+});
+
+await step("share: copy the code and download the file", async () => {
+    await page.click("#share_copy");
+    await page.waitForFunction(() => document.getElementById("share_status").textContent === "Code copied");
+    shared_code = await page.evaluate(() => navigator.clipboard.readText());
+    assert.ok(shared_code.startsWith("RMS1."));
+    assert.equal(shared_code, await page.evaluate(() => window.__rm.share_panel.result.code));
+    assert.equal(await page.inputValue("#share_code"), shared_code, "short codes are shown");
+    const [download] = await Promise.all([page.waitForEvent("download"), page.click("#share_download")]);
+    assert.equal(download.suggestedFilename(), "model.rmmodel");
+    shared_file = await readFile(await download.path());
+    assert.equal(shared_file.subarray(0, 2).toString(), "PK");
+    await page.click("#share_close");
+});
+
+await step("share: a browser without any resource pack shows the same picture from the code", async () => {
+    const { fresh, other } = await fresh_page();
+    assert.equal(await other.locator("#onboarding").isVisible(), true);
+    await other.fill("#load_input", shared_code);
+    await other.click("#load_button");
+    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    assert.equal(await other.locator("#onboarding").isVisible(), false);
+    assert.match(await other.textContent("#pack_summary"), /\(shared\)$/);
+    // Only the blocks that were used
+    assert.deepEqual(
+        (await other.$$eval(".block_item", items => items.map(i => i.dataset.name))).sort(),
+        ["minecraft:glass", "minecraft:grass_block", "minecraft:observer", "minecraft:oak_fence", "minecraft:stone"].sort(),
+    );
+    await fixed_view(other);
+    assert.deepEqual(await picture_of(other), sender_picture, "pixel for pixel the same");
+    // The names came along
+    assert.equal(await other.locator(".block_item[data-name=\"minecraft:stone\"] .block_name").textContent(), "石头");
+    // The pack is kept in the library and the receiver's own choice stays possible
+    await other.click("#pack_button");
+    await other.waitForSelector("#library_list li .pack_label");
+    assert.match(await other.textContent("#library_list li .pack_label"), /\(shared\)/);
+    await fresh.close();
+});
+
+await step("share: a state that was not placed is missing with 'only used states', and works with 'every state'", async () => {
+    const check = async (code, expect_missing) => {
+        const { fresh, other } = await fresh_page();
+        await other.fill("#load_input", code);
+        await other.click("#load_button");
+        await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+        const textures = await other.evaluate(() => window.__rm.resources.pack.geometry("minecraft:observer", { facing: "east", powered: "false" }).quads.map(q => q.tex));
+        assert.equal(textures.every(tex => tex === "minecraft:missing"), expect_missing, textures.join());
+        await fresh.close();
+    };
+    await check(shared_code, true);
+    await page.click("#share_button");
+    await page.selectOption("#share_scope", "all");
+    await page.waitForFunction(() => window.__rm.share_panel.scope.value === "all" && window.__rm.share_panel.result?.stats && /characters/.test(document.getElementById("share_stats").textContent));
+    await page.click("#share_copy");
+    const all_code = await page.evaluate(() => navigator.clipboard.readText());
+    await check(all_code, false);
+    await page.click("#share_close");
+});
+
+await step("share: the file and the whole pack work as well", async () => {
+    // The file, opened from the dialog
+    const { fresh, other } = await fresh_page();
+    await other.click("#share_button");
+    await other.setInputFiles("#share_file", [{ name: "model.rmmodel", mimeType: "application/zip", buffer: shared_file }]);
+    await other.waitForFunction(() => document.getElementById("share_open_status").textContent.startsWith("Opened"), null, { timeout: 15000 });
+    await other.click("#share_close");
+    await fixed_view(other);
+    assert.deepEqual(await picture_of(other), sender_picture);
+    await fresh.close();
+
+    // The whole compiled pack: every block of the pack is there
+    await page.click("#share_button");
+    await page.selectOption("#share_scope", "pack");
+    await page.waitForFunction(() => window.__rm.share_panel.scope.value === "pack" && window.__rm.share_panel.result?.stats && /characters/.test(document.getElementById("share_stats").textContent));
+    await page.click("#share_copy");
+    const pack_code = await page.evaluate(() => navigator.clipboard.readText());
+    const all_blocks = await page.evaluate(() => window.__rm.resources.pack.names.length);
+    await page.click("#share_close");
+    const second = await fresh_page();
+    await second.other.fill("#load_input", pack_code);
+    await second.other.click("#load_button");
+    await second.other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    assert.equal(await second.other.locator(".block_item").count(), all_blocks);
+    await fixed_view(second.other);
+    assert.deepEqual(await picture_of(second.other), sender_picture);
+    // Only English and the chosen language are kept
+    await second.other.click("#settings_button");
+    assert.deepEqual(await second.other.$$eval("#search_language option", o => o.map(x => x.value)), ["", "zh_cn"]);
+    await second.fresh.close();
+});
+
+await step("share: a damaged or foreign code is refused and nothing breaks", async () => {
+    const { fresh, other } = await fresh_page();
+    for (const code of ["RMS1.AAAA", "RMS1.!!!", "RMS1.", `${shared_code.slice(0, 200)}`]) {
+        await other.fill("#load_input", code);
+        await other.click("#load_button");
+        await other.waitForFunction(() => document.getElementById("load_button").textContent === "Invalid code");
+        await other.waitForFunction(() => document.getElementById("load_button").textContent === "Load", null, { timeout: 5000 });
+    }
+    assert.equal(await other.locator("#onboarding").isVisible(), true);
+    await other.click("#share_button");
+    await other.fill("#share_paste", "RMS1.not-a-model");
+    await other.click("#share_open_button");
+    await other.waitForFunction(() => document.getElementById("share_open_status").textContent.startsWith("Could not open it"));
+    assert.equal(await other.evaluate(() => window.__rm.world.blocks.size), 0);
+    await other.click("#share_close");
+    await other.click("#pack_button");
+    assert.equal(await other.locator("#pack_dialog").isVisible(), true);
+    await fresh.close();
+});
+
 await step("phone: quick repeated taps place blocks and never zoom the page", async () => {
     const phone = await browser.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
     const mobile = await phone.newPage();

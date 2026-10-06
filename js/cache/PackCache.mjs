@@ -75,6 +75,15 @@ export async function fingerprint(sources) {
     return [...new Uint8Array(digest)].slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Id for a pack that is known by its content.
+ * @param {Uint8Array} bytes
+ */
+export async function hash_bytes(bytes) {
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest)].slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 /** @returns {Promise<PackInfo[]>} Newest first */
 export async function list_packs() {
     const infos = await run([INFO], "readonly", tx => tx.objectStore(INFO).getAll());

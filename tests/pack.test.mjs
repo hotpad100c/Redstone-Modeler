@@ -7,7 +7,7 @@ import { CompiledPack, pretty_name } from "../js/pack/CompiledPack.mjs";
 import { read_rmpack, write_rmpack } from "../js/pack/Rmpack.mjs";
 import { Pack, locate_assets, parse_json } from "../js/pack/Pack.mjs";
 import { PackStack } from "../js/pack/PackStack.mjs";
-import { base_pack, make_pack, overlay_pack, stack, zip_of, base_files } from "./fixtures.mjs";
+import { base_files, base_pack, compiled_pack, make_pack, overlay_pack, stack, zip_of } from "./fixtures.mjs";
 
 const extra = JSON.parse(readFileSync(new URL("../data/block_properties.json", import.meta.url), "utf8"));
 
@@ -139,14 +139,7 @@ test("collect resolves parents and texture variables", () => {
     assert.equal(models["minecraft:block/chest"].particle, "minecraft:block/stone");
 });
 
-function compiled(s) {
-    const data = collect(s, extra);
-    const textures = Object.fromEntries([...data.textures, "minecraft:missing"].map((id, i) => [id, {
-        x: i * 18, y: 0, w: 16, h: 16, opaque: !id.endsWith("glass"), translucent: id.endsWith("glass"),
-    }]));
-    const lang = Object.fromEntries(Object.entries(data.lang).map(([code, names]) => [code, new TextEncoder().encode(JSON.stringify(names))]));
-    return new CompiledPack({ ...data, name: "test", atlas: { width: 1024, height: 32, textures } }, { lang });
-}
+const compiled = pack_stack => compiled_pack(pack_stack, extra);
 
 test("compiled pack: powered observer uses the overlay texture, unpowered the base", () => {
     const pack = compiled(stack());

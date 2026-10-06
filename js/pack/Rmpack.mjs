@@ -10,9 +10,10 @@ export const FORMAT_VERSION = 1;
  * @param {Uint8Array} atlas_png
  * @param {Record<string, Uint8Array>} colormaps File name to PNG bytes
  * @param {Record<string, Uint8Array>} lang Language code to the JSON bytes of `{block id: name}`
+ * @param {Record<string, Uint8Array>} extra More files, for example `world.json` of a shared model
  * @returns {Uint8Array}
  */
-export function write_rmpack(data, atlas_png, colormaps = {}, lang = {}) {
+export function write_rmpack(data, atlas_png, colormaps = {}, lang = {}, extra = {}) {
     const files = {
         "data.json": strToU8(JSON.stringify({ ...data, format: FORMAT_VERSION })),
         "atlas.png": [atlas_png, { level: 0 }],
@@ -23,14 +24,31 @@ export function write_rmpack(data, atlas_png, colormaps = {}, lang = {}) {
     for (const [code, bytes] of Object.entries(lang)) {
         files[`lang/${code}.json`] = bytes;
     }
-    return zipSync(files, { level: 6 });
+    for (const [path, bytes] of Object.entries(extra)) {
+        files[path] = bytes;
+    }
+    return zipSync(files, { level: 9 });
 }
+
+const MAX_UNPACKED = 256 * 1024 * 1024;
+const MAX_FILES = 1000;
 
 /**
  * @param {Uint8Array} bytes
+ * @param {number} [max_size] Limit for the size of everything unpacked, in bytes
  */
-export function read_rmpack(bytes) {
-    const files = unzipSync(bytes);
+export function read_rmpack(bytes, max_size = MAX_UNPACKED) {
+    let total = 0;
+    let count = 0;
+    const files = unzipSync(bytes, {
+        filter: (file) => {
+            total += file.originalSize;
+            if (total > max_size || ++count > MAX_FILES) {
+                throw new Error("The file is too big or has too many parts");
+            }
+            return true;
+        },
+    });
     if (!files["data.json"] || !files["atlas.png"]) {
         throw new Error("Not a valid .rmpack file");
     }
@@ -48,5 +66,6 @@ export function read_rmpack(bytes) {
             lang[path.slice("lang/".length, -".json".length)] = content;
         }
     }
-    return { data, atlas_png: files["atlas.png"], colormaps, lang };
+    const world = files["world.json"] ? JSON.parse(strFromU8(files["world.json"])) : null;
+    return { data, atlas_png: files["atlas.png"], colormaps, lang, world };
 }

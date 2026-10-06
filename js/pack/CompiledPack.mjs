@@ -1,5 +1,6 @@
 import { default_state, select_models_layered } from "./BlockStates.mjs";
 import { MISSING, MISSING_MODEL, build_block } from "../render/BlockMesher.mjs";
+import { sample_colors } from "../render/Tint.mjs";
 import { normalize_id } from "./PackStack.mjs";
 
 /**
@@ -39,7 +40,12 @@ export class CompiledPack {
         return this.data.languages ?? [];
     }
 
-    _names(code) {
+    /**
+     * Block names of one language.
+     * @param {string} code Language code such as `zh_cn`
+     * @returns {Record<string, string>|null}
+     */
+    lang_names(code) {
         if (!this.lang_cache.has(code)) {
             let names = null;
             const bytes = this.lang_bytes[code];
@@ -63,12 +69,17 @@ export class CompiledPack {
      */
     display_name(id, code = "") {
         for (const language of [code, "en_us"]) {
-            const name = language ? this._names(language)?.[id] : undefined;
+            const name = language ? this.lang_names(language)?.[id] : undefined;
             if (name) {
                 return name;
             }
         }
         return pretty_name(id);
+    }
+
+    /** The colours of grass and leaves: stored in a shared pack, else taken from the colour maps. */
+    tint_colors() {
+        return this.data.tint_colors ?? sample_colors(this.colormaps);
     }
 
     properties(name) {
@@ -102,7 +113,14 @@ export class CompiledPack {
         const key = `${name}|${Object.keys(state).sort().map(k => `${k}=${state[k]}`).join(",")}`;
         let geometry = this.cache.get(key);
         if (!geometry) {
-            geometry = this._build(name, { ...this.default_state(name), ...state });
+            try {
+                geometry = this._build(name, { ...this.default_state(name), ...state });
+            }
+            catch (error) {
+                // Data from a shared model can be malformed; the block just shows up as missing
+                console.warn(`Could not build ${name}`, error);
+                geometry = build_block([{ x: 0, y: 0, uvlock: false, model: MISSING_MODEL }], id => this.is_opaque(id));
+            }
             this.cache.set(key, geometry);
         }
         return geometry;

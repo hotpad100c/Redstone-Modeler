@@ -24,7 +24,7 @@ while IFS= read -r file; do
   sed -E -i "$rewrite" "$file"
 done < <(
   {
-    find "$out/js/render" "$out/js/pack" "$out/js/ui" "$out/js/model" "$out/js/cache" "$out/js/i18n" "$out/lib" \
+    find "$out/js/render" "$out/js/pack" "$out/js/ui" "$out/js/model" "$out/js/cache" "$out/js/i18n" "$out/js/share" "$out/lib" \
       -type f \( -name '*.mjs' -o -name '*.js' \) ! -name 'three.module.min.js'
     echo "$out/js/app.mjs"
     echo "$out/js/editor.mjs"

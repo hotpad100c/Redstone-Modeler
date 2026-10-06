@@ -6,7 +6,7 @@ import { asset_path, normalize_id } from "./PackStack.mjs";
  * Model ids used by blockstate files.
  * @param {object} def
  */
-function model_ids(def) {
+export function model_ids(def) {
     const ids = [];
     const take = (entry) => {
         for (const variant of Array.isArray(entry) ? entry : [entry]) {
