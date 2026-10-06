@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { enumerate_states, parse_variant_key, state_count, select_models, select_models_layered, when_matches } from "../js/pack/BlockStates.mjs";
-import { collect } from "../js/pack/Compiler.mjs";
-import { CompiledPack } from "../js/pack/CompiledPack.mjs";
+import { collect, collect_lang } from "../js/pack/Compiler.mjs";
+import { CompiledPack, pretty_name } from "../js/pack/CompiledPack.mjs";
+import { read_rmpack, write_rmpack } from "../js/pack/Rmpack.mjs";
 import { Pack, locate_assets, parse_json } from "../js/pack/Pack.mjs";
 import { PackStack } from "../js/pack/PackStack.mjs";
 import { base_pack, make_pack, overlay_pack, stack, zip_of, base_files } from "./fixtures.mjs";
@@ -143,7 +144,8 @@ function compiled(s) {
     const textures = Object.fromEntries([...data.textures, "minecraft:missing"].map((id, i) => [id, {
         x: i * 18, y: 0, w: 16, h: 16, opaque: !id.endsWith("glass"), translucent: id.endsWith("glass"),
     }]));
-    return new CompiledPack({ ...data, name: "test", atlas: { width: 1024, height: 32, textures } });
+    const lang = Object.fromEntries(Object.entries(data.lang).map(([code, names]) => [code, new TextEncoder().encode(JSON.stringify(names))]));
+    return new CompiledPack({ ...data, name: "test", atlas: { width: 1024, height: 32, textures } }, { lang });
 }
 
 test("compiled pack: powered observer uses the overlay texture, unpowered the base", () => {
@@ -265,4 +267,52 @@ test("several namespaces under one assets folder stay separate and can refer to 
     assert.equal(data.models["minecraft:block/chest"].elements[0].faces.up.texture, "minecraft:block/chest");
     assert.equal(data.models["create:block/chest"].elements[0].faces.up.texture, "create:block/chest");
     assert.ok(data.textures.includes("create:block/cog") && data.textures.includes("minecraft:block/stone"));
+});
+
+test("block names are read from the language files of every pack, higher packs win", () => {
+    const { languages, names } = collect_lang(stack(), ["minecraft:stone", "minecraft:observer", "minecraft:chest", "minecraft:missing"]);
+    assert.deepEqual(languages.map(l => l.code), ["de_de", "en_us", "zh_cn"]);
+    assert.deepEqual(languages.find(l => l.code === "zh_cn"), { code: "zh_cn", name: "简体中文", region: "中国" });
+    assert.equal(names.zh_cn["minecraft:observer"], "侦测器（红石版）", "the overlay pack renames the block");
+    assert.equal(names.zh_cn["minecraft:stone"], "石头", "other names come from the base pack");
+    assert.equal(names.en_us["minecraft:chest"], "Chest");
+    assert.equal(names.zh_cn["minecraft:chest"], undefined, "no entry for a name nobody has");
+    assert.equal(names.en_us["minecraft:missing"], undefined);
+    assert.deepEqual(Object.keys(names.de_de), ["minecraft:stone"]);
+});
+
+test("block name keys follow the game: namespace, then the path with dots for slashes", () => {
+    const pack = make_pack("m", {
+        "assets/mod/lang/en_us.json": { "block.mod.sub.thing": "Sub Thing", "block.mod.plain": "Plain", "block.other.plain": "Not ours" },
+        "assets/mod/lang/ZH_CN.json": { "block.mod.plain": "朴素" },
+    });
+    const { names } = collect_lang(new PackStack([pack]), ["mod:sub/thing", "mod:plain"]);
+    assert.deepEqual(names.en_us, { "mod:sub/thing": "Sub Thing", "mod:plain": "Plain" });
+    assert.deepEqual(names.zh_cn, { "mod:plain": "朴素" }, "language file names are matched without regard to case");
+});
+
+test("display names fall back to English and then to a name made from the id", () => {
+    const pack = compiled(stack());
+    assert.equal(pack.display_name("minecraft:stone", "zh_cn"), "石头");
+    assert.equal(pack.display_name("minecraft:chest", "zh_cn"), "Chest", "not in Chinese, so English");
+    assert.equal(pack.display_name("minecraft:stone", ""), "Stone");
+    assert.equal(pack.display_name("minecraft:stone", "xx_xx"), "Stone", "unknown language");
+    assert.equal(pack.display_name("minecraft:oak_stairs", "zh_cn"), "Oak Stairs", "in no language file");
+    assert.equal(pretty_name("create:copper/casing_block"), "Casing Block");
+    assert.deepEqual(pack.languages.map(l => l.code), ["de_de", "en_us", "zh_cn"]);
+});
+
+test("a compiled pack without language data still works", () => {
+    const data = collect(new PackStack([make_pack("x", { "assets/minecraft/blockstates/stone.json": { variants: { "": { model: "block/stone" } } } })]));
+    const pack = new CompiledPack({ ...data, name: "old", atlas: { width: 16, height: 16, textures: {} } });
+    assert.deepEqual(pack.languages, []);
+    assert.equal(pack.display_name("minecraft:stone", "zh_cn"), "Stone");
+});
+
+test(".rmpack keeps the language files", () => {
+    const bytes = write_rmpack({ name: "x", atlas: {}, index: {} }, new Uint8Array([1, 2, 3]), {}, { zh_cn: new TextEncoder().encode("{\"a\":\"b\"}") });
+    const { lang } = read_rmpack(bytes);
+    assert.deepEqual(Object.keys(lang), ["zh_cn"]);
+    assert.equal(new TextDecoder().decode(lang.zh_cn), "{\"a\":\"b\"}");
+    assert.deepEqual(read_rmpack(write_rmpack({ name: "x", atlas: {}, index: {} }, new Uint8Array([1]))).lang, {});
 });

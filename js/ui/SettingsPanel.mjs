@@ -1,8 +1,12 @@
+import * as i18n from "../i18n/i18n.mjs";
 import { DEFAULTS, SIZE_LIMITS, normalize, save } from "../model/Settings.mjs";
 
+const { t, tn } = i18n;
+
 /**
- * Dialog for the size of the model space, the background colour and the colour of the 2D plane.
- * Colours apply immediately; a size that would delete blocks needs a second click.
+ * Dialog for the size of the model space, the background colour, the colour of the 2D plane and
+ * the language of block names. Colours and language apply immediately; a size that would delete
+ * blocks needs a second click.
  */
 export class SettingsPanel {
     /**
@@ -18,6 +22,12 @@ export class SettingsPanel {
         this.world = world;
         this.scene = scene;
         this.pending = null;
+        /** @type {import("../pack/CompiledPack.mjs").CompiledPack|null} */
+        this.pack = null;
+        /** @type {() => void} Called when the language of the block names changed */
+        this.on_language_change = () => {};
+        /** @type {() => void} Called when the language of the interface changed */
+        this.on_ui_language_change = () => {};
         const $ = id => dialog.querySelector(`#${id}`);
         this.size_inputs = { x: $("size_x"), y: $("size_y"), z: $("size_z") };
         this.note = $("size_note");
@@ -26,6 +36,9 @@ export class SettingsPanel {
         this.plane_color = $("plane_color");
         this.plane_opacity = $("plane_opacity");
         this.opacity_label = $("plane_opacity_value");
+        this.ui_language_select = $("ui_language");
+        this.language_select = $("search_language");
+        this.language_note = $("language_note");
 
         for (const input of Object.values(this.size_inputs)) {
             input.min = SIZE_LIMITS.min;
@@ -39,6 +52,17 @@ export class SettingsPanel {
         this.background.addEventListener("input", () => this._set_colors());
         this.plane_color.addEventListener("input", () => this._set_colors());
         this.plane_opacity.addEventListener("input", () => this._set_colors());
+        this.ui_language_select.addEventListener("change", () => {
+            this.settings.language = this.ui_language_select.value;
+            save(this.settings);
+            i18n.set_language(i18n.resolve_language(this.settings.language));
+            this.on_ui_language_change();
+        });
+        this.language_select.addEventListener("change", () => {
+            this.settings.search_language = this.language_select.value;
+            save(this.settings);
+            this.on_language_change();
+        });
         $("settings_reset").addEventListener("click", () => this.reset());
         $("settings_close").addEventListener("click", () => dialog.close());
         this.show();
@@ -50,11 +74,78 @@ export class SettingsPanel {
         this.dialog.showModal();
     }
 
+    /**
+     * Offers the languages of the pack for the block names.
+     * @param {import("../pack/CompiledPack.mjs").CompiledPack|null} pack
+     */
+    set_pack(pack) {
+        this.pack = pack;
+        this.language_select.replaceChildren();
+        const english = document.createElement("option");
+        english.value = "";
+        english.textContent = t("settings.english_only");
+        this.language_select.appendChild(english);
+        // English is always searched, so it is not listed again
+        for (const language of (pack?.languages ?? []).filter(l => l.code !== "en_us")) {
+            const option = document.createElement("option");
+            option.value = language.code;
+            option.textContent = SettingsPanel.language_label(language);
+            this.language_select.appendChild(option);
+        }
+        this.language_note.textContent = pack && pack.languages.length === 0
+            ? t("settings.no_names")
+            : "";
+        this.show();
+    }
+
+    /** Fills the language lists of the interface; call again after the interface language changed. */
+    _fill_ui_languages() {
+        this.ui_language_select.replaceChildren();
+        for (const { code, name } of [{ code: "auto", name: t("settings.auto") }, ...i18n.LANGUAGES]) {
+            const option = document.createElement("option");
+            option.value = code;
+            option.textContent = name;
+            this.ui_language_select.appendChild(option);
+        }
+    }
+
+    /** Redraws the parts that contain interface text, after the language of the interface changed. */
+    refresh_language() {
+        this.set_pack(this.pack);
+        this.note.textContent = "";
+    }
+
+    /**
+     * The language to use for block names with the loaded pack: the chosen one if the pack has it, else English only.
+     * @returns {string} Language code, or "" for English only
+     */
+    effective_language() {
+        const code = this.settings.search_language;
+        return code && this.pack?.languages.some(l => l.code === code) ? code : "";
+    }
+
+    /** @param {{code: string, name: string, region: string}} language */
+    static language_label({ code, name, region }) {
+        let label = name;
+        if (!label) {
+            try {
+                label = new Intl.DisplayNames(["en"], { type: "language" }).of(code.replace("_", "-")) ?? code;
+            }
+            catch {
+                label = code;
+            }
+        }
+        return region ? `${label} (${region})` : label;
+    }
+
     /** Fills the form from the stored settings. */
     show() {
         for (const [axis, input] of Object.entries(this.size_inputs)) {
             input.value = this.settings.size[axis];
         }
+        this._fill_ui_languages();
+        this.ui_language_select.value = this.settings.language;
+        this.language_select.value = this.effective_language();
         this.background.value = this.settings.background;
         this.plane_color.value = this.settings.plane_color;
         this.plane_opacity.value = this.settings.plane_opacity;
@@ -78,7 +169,7 @@ export class SettingsPanel {
         const key = JSON.stringify(wanted);
         if (outside > 0 && this.pending !== key) {
             this.pending = key;
-            this.note.textContent = `${outside} block${outside === 1 ? "" : "s"} outside the new size will be removed. Click Apply again to confirm.`;
+            this.note.textContent = tn("settings.size_warn", outside);
             return;
         }
         this.pending = null;
@@ -86,7 +177,7 @@ export class SettingsPanel {
         this.settings.size = wanted;
         save(this.settings);
         const cells = wanted.x * wanted.y * wanted.z;
-        this.note.textContent = cells > 100000 ? "Applied. Very large spaces can be slow." : "Applied.";
+        this.note.textContent = cells > 100000 ? t("settings.applied_large") : t("settings.applied");
     }
 
     reset() {
@@ -95,15 +186,18 @@ export class SettingsPanel {
         Object.assign(this.settings, normalize({ ...DEFAULTS, size }));
         this.show();
         this._apply_colors();
+        i18n.set_language(i18n.resolve_language(this.settings.language));
+        this.on_ui_language_change();
+        this.on_language_change();
         if (outside === 0) {
             this.scene.set_size(size);
-            this.note.textContent = "Defaults restored.";
+            this.note.textContent = t("settings.defaults_restored");
         }
         else {
             // Keep the model: only the colours are reset, the size needs an explicit Apply
             this.settings.size = { ...this.world.size };
             this.show();
-            this.note.textContent = `Colours reset. The default size would remove ${outside} block${outside === 1 ? "" : "s"}; set it and press Apply to confirm.`;
+            this.note.textContent = tn("settings.reset_kept", outside);
         }
         save(this.settings);
     }

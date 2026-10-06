@@ -56,4 +56,14 @@ test("settings fall back to the defaults and are clamped", () => {
     assert.equal(normalize({ plane_opacity: "x" }).plane_opacity, DEFAULTS.plane_opacity);
     assert.equal(normalize({ plane_opacity: null }).plane_opacity, DEFAULTS.plane_opacity);
     assert.equal(normalize({ plane_opacity: 0 }).plane_opacity, 0);
+    assert.equal(normalize({}).search_language, "zh_cn", "Chinese by default");
+    assert.equal(normalize({ search_language: "" }).search_language, "", "English only");
+    assert.equal(normalize({ search_language: "de_de" }).search_language, "de_de");
+    assert.equal(normalize({ search_language: "No Way!" }).search_language, "zh_cn");
+    assert.equal(normalize({ search_language: 5 }).search_language, "zh_cn");
+    assert.equal(normalize({}).language, "auto");
+    assert.equal(normalize({ language: "zh-CN" }).language, "zh-CN");
+    assert.equal(normalize({ language: "en" }).language, "en");
+    assert.equal(normalize({ language: "<script>" }).language, "auto");
+    assert.equal(normalize({ language: 3 }).language, "auto");
 });

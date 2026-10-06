@@ -34,6 +34,59 @@ function is_entity_only(defs, resolver) {
 }
 
 /**
+ * Block names of every language the packs have a language file for.
+ * Layers merge like in Minecraft: a pack higher in the stack overrides the names of the packs below.
+ * The key of a block is `block.<namespace>.<path>`, with `/` in the path written as `.`.
+ * @param {import("./PackStack.mjs").PackStack} stack
+ * @param {string[]} ids Block ids such as `minecraft:stone`
+ * @returns {{languages: {code: string, name: string, region: string}[], names: Record<string, Record<string, string>>}}
+ */
+export function collect_lang(stack, ids) {
+    const files = new Map(); // code to [layer index, path][]
+    stack.layers.forEach((pack, layer) => {
+        for (const path of pack.paths()) {
+            const match = /^assets\/[^/]+\/lang\/([^/]+)\.json$/i.exec(path);
+            if (match) {
+                const code = match[1].toLowerCase();
+                if (!files.has(code)) {
+                    files.set(code, []);
+                }
+                files.get(code).push([layer, path]);
+            }
+        }
+    });
+    const languages = [];
+    const names = {};
+    for (const [code, list] of [...files].sort(([a], [b]) => a.localeCompare(b))) {
+        const merged = {};
+        // Lowest layer first so that higher layers win
+        for (const [layer, path] of [...list].sort((a, b) => b[0] - a[0])) {
+            const json = stack.layers[layer].json(path);
+            if (json && typeof json === "object") {
+                for (const [key, value] of Object.entries(json)) {
+                    if (typeof value === "string") {
+                        merged[key] = value;
+                    }
+                }
+            }
+        }
+        const found = {};
+        for (const id of ids) {
+            const colon = id.indexOf(":");
+            const key = `block.${id.slice(0, colon)}.${id.slice(colon + 1).replace(/\//g, ".")}`;
+            if (merged[key]) {
+                found[id] = merged[key];
+            }
+        }
+        if (Object.keys(found).length > 0) {
+            names[code] = found;
+            languages.push({ code, name: merged["language.name"] ?? "", region: merged["language.region"] ?? "" });
+        }
+    }
+    return { languages, names };
+}
+
+/**
  * Reads every blockstate in the stack and everything it references.
  * Pure data work, no images, so it runs anywhere.
  * @param {import("./PackStack.mjs").PackStack} stack
@@ -87,5 +140,6 @@ export function collect(stack, extra_properties = {}, fallback = { blockstates: 
             delete models[key];
         }
     }
-    return { blockstates, index, models, textures: [...textures].sort() };
+    const { languages, names } = collect_lang(stack, Object.keys(index));
+    return { blockstates, index, models, textures: [...textures].sort(), languages, lang: names };
 }
