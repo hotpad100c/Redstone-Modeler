@@ -3,6 +3,8 @@
  */
 import { deflateSync } from "node:zlib";
 import { strToU8, zipSync } from "../lib/fflate.module.js";
+import { collect } from "../js/pack/Compiler.mjs";
+import { CompiledPack } from "../js/pack/CompiledPack.mjs";
 import { Pack } from "../js/pack/Pack.mjs";
 import { PackStack } from "../js/pack/PackStack.mjs";
 
@@ -232,4 +234,18 @@ export function zip_of(files) {
         path,
         value instanceof Uint8Array ? [value, { level: 0 }] : strToU8(JSON.stringify(value)),
     ])));
+}
+
+/**
+ * A compiled pack without the picture: the atlas has a rectangle for every texture, which is all the code needs.
+ * @param {PackStack} pack_stack
+ * @param {Record<string, Record<string, string[]>>} [extra] Extra block properties
+ */
+export function compiled_pack(pack_stack, extra = {}) {
+    const data = collect(pack_stack, extra);
+    const textures = Object.fromEntries([...data.textures, "minecraft:missing"].map((id, i) => [id, {
+        x: i * 18, y: 0, w: 16, h: 16, opaque: !id.endsWith("glass"), translucent: id.endsWith("glass"),
+    }]));
+    const lang = Object.fromEntries(Object.entries(data.lang).map(([code, names]) => [code, new TextEncoder().encode(JSON.stringify(names))]));
+    return new CompiledPack({ ...data, name: "test", atlas: { width: 1024, height: 32, textures } }, { lang });
 }

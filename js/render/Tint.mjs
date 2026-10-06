@@ -31,6 +31,15 @@ function sample(map, fallback) {
 }
 
 /**
+ * The two colours that come out of the colour maps, to be stored instead of the maps.
+ * @param {{grass?: object, foliage?: object}} colormaps Decoded colour maps
+ * @returns {{grass: number[], foliage: number[]}}
+ */
+export function sample_colors(colormaps = {}) {
+    return { grass: sample(colormaps.grass, GRASS_DEFAULT), foliage: sample(colormaps.foliage, FOLIAGE_DEFAULT) };
+}
+
+/**
  * Colour of redstone dust for a power level, same formula as the game.
  * @param {number} power 0..15
  */
@@ -44,11 +53,11 @@ export function redstone_color(power) {
 
 /**
  * @param {{grass?: object, foliage?: object}} colormaps Decoded colour maps
+ * @param {{grass: number[], foliage: number[]}} [fixed] Colours to use instead of sampling the maps
  * @returns {(block: string, state: Record<string, string>) => number[]} RGB 0..1; white means untinted
  */
-export function make_tint(colormaps = {}) {
-    const grass = sample(colormaps.grass, GRASS_DEFAULT);
-    const foliage = sample(colormaps.foliage, FOLIAGE_DEFAULT);
+export function make_tint(colormaps = {}, fixed = undefined) {
+    const { grass, foliage } = fixed ?? sample_colors(colormaps);
     return (block, state) => {
         const name = block.replace(/^minecraft:/, "");
         let rgb = WHITE;

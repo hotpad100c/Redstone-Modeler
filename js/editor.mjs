@@ -10,7 +10,9 @@ import { Scene } from "./render/Scene.mjs";
 import { BlockPicker } from "./ui/BlockPicker.mjs";
 import { PackPanel } from "./ui/PackPanel.mjs";
 import { SettingsPanel } from "./ui/SettingsPanel.mjs";
+import { SharePanel } from "./ui/SharePanel.mjs";
 import { StateBar } from "./ui/StateBar.mjs";
+import { SHARE_PREFIX, decode_code, read_model } from "./share/Share.mjs";
 
 const AUTOSAVE_KEY = "redstone-modeler.autosave";
 const $ = id => document.getElementById(id);
@@ -65,6 +67,29 @@ settings_panel.on_ui_language_change = () => {
     show_pack_problem(problem);
 };
 
+/**
+ * Opens a shared model: its resources become the pack in use, then the blocks are placed.
+ * @param {Uint8Array} bytes Contents of a `.rmmodel`
+ * @returns {Promise<string>} Name of the pack that came with it
+ */
+async function open_shared(bytes) {
+    const { world: save } = read_model(bytes);
+    const name = await pack_panel.add_compiled(bytes);
+    deserialize(save, world);
+    scene.apply_world_size();
+    settings_panel.sync_size();
+    return name;
+}
+
+const share_panel = new SharePanel({
+    dialog: $("share_dialog"),
+    world,
+    get_resources: () => resources,
+    get_language: () => settings_panel.effective_language(),
+    on_open: open_shared,
+});
+$("share_button").addEventListener("click", () => share_panel.open());
+
 // What the top bar says about the pack. Elements with data-i18n are translated by the page, so the
 // attribute is only there while the text is a translatable one.
 function update_summary() {
@@ -102,6 +127,7 @@ async function use_pack(bytes) {
     const { pack, atlas_image } = await load_compiled(bytes);
     const previous = resources;
     resources = new Resources(pack, atlas_image);
+    resources.bytes = bytes; // sharing the whole pack needs the file again
     scene.set_resources(resources);
     icons.set_resources(resources);
     settings_panel.set_pack(pack);
@@ -262,8 +288,14 @@ $("save_button").addEventListener("click", async () => {
 
 $("load_button").addEventListener("click", async () => {
     try {
+        const code = $("load_input").value;
+        if (code.trim().startsWith(SHARE_PREFIX)) {
+            await open_shared(decode_code(code));
+            flash($("load_button"), t("top.loaded"));
+            return;
+        }
         // eslint-disable-next-line no-undef
-        const dropped = deserialize(await decode($("load_input").value, LZMA), world);
+        const dropped = deserialize(await decode(code, LZMA), world);
         scene.apply_world_size();
         settings_panel.sync_size();
         flash($("load_button"), dropped ? t("top.loaded_outside", { count: dropped }) : t("top.loaded"));
@@ -330,7 +362,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Exposed for tests and debugging. Set before the saved pack loads: the interface is usable from here on.
-window.__rm = { world, scene, picker, pack_panel, state_bar, get resources() {
+window.__rm = { world, scene, picker, pack_panel, state_bar, share_panel, get resources() {
     return resources;
 } };
 

@@ -1,5 +1,6 @@
 import { t } from "../i18n/i18n.mjs";
-import { fingerprint, delete_pack, get_active, get_pack_bytes, list_packs, put_pack, request_persistence, set_active } from "../cache/PackCache.mjs";
+import { fingerprint, hash_bytes, delete_pack, get_active, get_pack_bytes, list_packs, put_pack, request_persistence, set_active } from "../cache/PackCache.mjs";
+import { read_rmpack } from "../pack/Rmpack.mjs";
 import { Pack } from "../pack/Pack.mjs";
 import { compile } from "../pack/Loader.mjs";
 
@@ -90,8 +91,8 @@ export class PackPanel {
         for (const file of files) {
             try {
                 const bytes = new Uint8Array(await file.arrayBuffer());
-                if (file.name.toLowerCase().endsWith(".rmpack")) {
-                    await this._store_and_use(bytes, [{ name: file.name, size: file.size, lastModified: file.lastModified }], file.name.replace(/\.rmpack$/i, ""));
+                if (/\.(rmpack|rmmodel)$/i.test(file.name)) {
+                    await this._store_and_use(bytes, [{ name: file.name, size: file.size, lastModified: file.lastModified }], file.name.replace(/\.(rmpack|rmmodel)$/i, ""));
                     continue;
                 }
                 const name = file.name.replace(/\.zip$/i, "");
@@ -154,8 +155,20 @@ export class PackPanel {
         }
     }
 
-    async _store_and_use(bytes, sources, name) {
-        const id = await fingerprint(sources);
+    /**
+     * Saves a compiled pack in the browser and uses it. For a pack that came from someone else,
+     * for example the resources of a shared model.
+     * @param {Uint8Array} bytes
+     * @returns {Promise<string>} The name of the pack
+     */
+    async add_compiled(bytes) {
+        const { name } = read_rmpack(bytes).data;
+        await this._store_and_use(bytes, [{ name }], name, await hash_bytes(bytes));
+        return name;
+    }
+
+    async _store_and_use(bytes, sources, name, known_id = null) {
+        const id = known_id ?? await fingerprint(sources);
         await put_pack({ id, name, created: Date.now(), size: bytes.length, sources: sources.map(s => s.name) }, bytes);
         await set_active(id);
         await this.on_use(bytes, id);

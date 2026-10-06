@@ -71,6 +71,7 @@
             <button type="button" id="clear_button" data-i18n="top.clear" data-i18n-title="top.clear_title" title="Remove every block">Clear</button>
             <button type="button" id="settings_button" data-i18n="top.settings">Settings</button>
             <button type="button" id="image_button" data-i18n="top.copy_image">Copy image</button>
+            <button type="button" id="share_button" data-i18n="top.share" data-i18n-title="top.share_title" title="Share this model together with the resources it uses">Share</button>
             <button type="button" id="save_button" data-i18n="top.save">Save</button>
             <input type="text" id="load_input" size="8" data-i18n-placeholder="top.code_placeholder" placeholder="code" />
             <button type="button" id="load_button" data-i18n="top.load">Load</button>
@@ -116,6 +117,41 @@
             <div id="hotbar"></div>
         </div>
 
+        <dialog id="share_dialog">
+            <h2 data-i18n="share.title">Share this model</h2>
+            <p class="note" data-i18n="share.intro">Packs the model together with the models and textures of the blocks it uses, so the other side does not need your resource packs. Copy the code, or send the file when the code is too long for a message.</p>
+            <section>
+                <div class="row"><label><span data-i18n="share.scope">Include</span>
+                    <select id="share_scope">
+                        <option value="used" data-i18n="share.scope_used">Only the states used in the model (smallest)</option>
+                        <option value="all" data-i18n="share.scope_all">Every state of the blocks used</option>
+                        <option value="pack" data-i18n="share.scope_pack">The whole compiled resource pack</option>
+                    </select></label></div>
+                <div class="row" id="share_languages_row" hidden><label><input id="share_all_languages" type="checkbox" /> <span data-i18n="share.all_languages">Keep the block names of every language</span></label></div>
+                <div id="share_stats" class="note"></div>
+                <div id="share_parts" class="note"></div>
+                <div id="share_warning" class="error"></div>
+                <textarea id="share_code" rows="4" readonly spellcheck="false"></textarea>
+                <div class="row">
+                    <button type="button" id="share_copy" data-i18n="share.copy">Copy share code</button>
+                    <button type="button" id="share_download" data-i18n="share.download">Download file (.rmmodel)</button>
+                </div>
+                <div id="share_status" class="note"></div>
+                <p class="note" data-i18n="share.copyright">The code contains the textures of the blocks that are used. Only share what you may share.</p>
+            </section>
+            <section>
+                <h3 data-i18n="share.open_title">Open a shared model</h3>
+                <div class="row">
+                    <label class="file_button"><span data-i18n="share.open_file">Open file (.rmmodel)</span><input id="share_file" type="file" accept=".rmmodel,.rmpack,.zip,application/zip,application/octet-stream" /></label>
+                </div>
+                <textarea id="share_paste" rows="3" spellcheck="false" data-i18n-placeholder="share.open_paste" placeholder="Or paste a share code"></textarea>
+                <div class="row"><button type="button" id="share_open_button" data-i18n="share.open_button">Open</button></div>
+                <div id="share_open_status" class="note"></div>
+                <p class="note" data-i18n="share.open_hint">A shared model brings its own resources. They are added to this browser as a pack called "… (shared)" and used; your own packs stay as they are.</p>
+            </section>
+            <div class="row"><button type="button" id="share_close" data-i18n="share.close">Close</button></div>
+        </dialog>
+
         <dialog id="settings_dialog">
             <h2 data-i18n="settings.title">Settings</h2>
             <section>
@@ -159,7 +195,7 @@
             <section>
                 <h3 data-i18n="pack.step1">1. Stack packs</h3>
                 <div class="row">
-                    <label class="file_button"><span data-i18n="pack.add">Add pack (.zip / .rmpack)</span><input id="pack_file" type="file" multiple accept=".zip,.rmpack,application/zip,application/octet-stream" /></label>
+                    <label class="file_button"><span data-i18n="pack.add">Add pack (.zip / .rmpack)</span><input id="pack_file" type="file" multiple accept=".zip,.rmpack,.rmmodel,application/zip,application/octet-stream" /></label>
                     <label class="file_button"><span data-i18n="pack.add_folder">Add folder</span><input id="pack_folder" type="file" webkitdirectory /></label>
                 </div>
                 <ol id="source_list"></ol>
