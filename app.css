@@ -6,6 +6,35 @@ html, body {
     height: 100%;
     margin: 0;
     overscroll-behavior: none;
+    /* No double-tap zoom, so quick repeated taps are taps */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+button, select, input, label, dialog {
+    touch-action: manipulation;
+}
+
+#canvas3d, #gizmo {
+    touch-action: none;
+}
+
+body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+input[type="text"], input[type="search"], input[type="number"] {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* iOS zooms the page when a field smaller than 16px gets focus */
+@media (pointer: coarse) {
+    input, select {
+        font-size: 16px;
+    }
 }
 
 body {
@@ -124,6 +153,15 @@ button.selected, .selected {
 #block_search {
     margin: 6px;
     padding: 4px 6px;
+}
+
+#block_namespace {
+    margin: 0 6px 6px;
+    padding: 3px 4px;
+}
+
+#block_namespace[hidden] {
+    display: none;
 }
 
 #block_list {
@@ -326,6 +364,17 @@ dialog section {
     padding: 4px 6px;
 }
 
+dialog input[type="number"] {
+    width: 4.5em;
+    padding: 3px 4px;
+}
+
+dialog label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .file_button {
     border: 2px solid white;
     border-radius: 5px;
@@ -381,5 +430,16 @@ dialog section {
 
     #help {
         display: none;
+    }
+
+    #hotbar {
+        overflow-x: auto;
+        justify-content: flex-start;
+    }
+
+    .slot {
+        flex: none;
+        width: 40px;
+        height: 40px;
     }
 }

@@ -2,7 +2,7 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
         <title>Redstone Modeler</title>
         <link rel="stylesheet" href="app.css" />
         <script type="importmap">
@@ -16,6 +16,7 @@
             <span id="pack_summary" class="note">none loaded</span>
             <button type="button" id="erase_button" title="Eraser: left click removes blocks (E)">Eraser</button>
             <button type="button" id="clear_button" title="Remove every block">Clear</button>
+            <button type="button" id="settings_button">Settings</button>
             <button type="button" id="image_button">Copy image</button>
             <button type="button" id="save_button">Save</button>
             <input type="text" id="load_input" size="8" placeholder="code" />
@@ -41,6 +42,7 @@
             </div>
             <div id="sidebar">
                 <input type="search" id="block_search" placeholder="Search blocks" />
+                <select id="block_namespace" title="Only show blocks of one namespace (mod)" hidden></select>
                 <div id="block_list"></div>
                 <div id="block_states"></div>
             </div>
@@ -57,6 +59,33 @@
             <button type="button" id="state_toggle" title="Show every state combination of the held block">States ▲</button>
             <div id="hotbar"></div>
         </div>
+
+        <dialog id="settings_dialog">
+            <h2>Settings</h2>
+            <section>
+                <h3>Model space</h3>
+                <div class="row">
+                    <label>X <input id="size_x" type="number" inputmode="numeric" /></label>
+                    <label>Y (height) <input id="size_y" type="number" inputmode="numeric" /></label>
+                    <label>Z <input id="size_z" type="number" inputmode="numeric" /></label>
+                    <button type="button" id="size_apply">Apply</button>
+                </div>
+                <div id="size_note" class="note"></div>
+                <p class="note">1 to 64 blocks per side. Blocks outside a smaller space are removed. Very large spaces can be slow.</p>
+            </section>
+            <section>
+                <h3>Colours</h3>
+                <div class="row"><label>Background <input id="bg_color" type="color" /></label></div>
+                <div class="row">
+                    <label>2D plane <input id="plane_color" type="color" /></label>
+                    <label>Opacity <input id="plane_opacity" type="range" min="0" max="1" step="0.01" /> <span id="plane_opacity_value"></span></label>
+                </div>
+            </section>
+            <div class="row">
+                <button type="button" id="settings_reset">Reset</button>
+                <button type="button" id="settings_close">Close</button>
+            </div>
+        </dialog>
 
         <dialog id="pack_dialog">
             <h2>Resource packs</h2>

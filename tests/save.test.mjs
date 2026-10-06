@@ -16,11 +16,29 @@ test("world roundtrip through serialize/deserialize", () => {
     assert.equal(copy.blocks.size, 3);
 });
 
-test("blocks outside a smaller world are dropped and counted", () => {
+test("loading a save gives the world the size stored in it", () => {
     const world = new World({ x: 4, y: 4, z: 4 });
     world.set(3, 3, 3, { name: "minecraft:stone", props: {} });
-    const small = new World({ x: 2, y: 2, z: 2 });
-    assert.equal(deserialize(serialize(world), small), 1);
+    const other = new World({ x: 2, y: 2, z: 2 });
+    assert.equal(deserialize(serialize(world), other), 0);
+    assert.deepEqual(other.size, { x: 4, y: 4, z: 4 });
+    assert.ok(other.get(3, 3, 3));
+});
+
+test("blocks outside the size written in a save are dropped and counted", () => {
+    const save = { version: 2, size: { x: 2, y: 2, z: 2 }, packs: [], palette: [{ name: "minecraft:stone", props: {} }], blocks: [[0, 0, 0, 0], [5, 0, 0, 0]] };
+    const world = new World({ x: 9, y: 9, z: 9 });
+    assert.equal(deserialize(save, world), 1);
+    assert.equal(world.blocks.size, 1);
+});
+
+test("saves with an impossible size are rejected before anything changes", () => {
+    const world = new World({ x: 3, y: 3, z: 3 });
+    world.set(0, 0, 0, { name: "minecraft:stone", props: {} });
+    const save = { version: 2, size: { x: 500, y: 1, z: 1 }, palette: [], blocks: [] };
+    assert.throws(() => deserialize(save, world), /out of range/);
+    assert.equal(world.blocks.size, 1);
+    assert.deepEqual(world.size, { x: 3, y: 3, z: 3 });
 });
 
 test("old saves are rejected", () => {

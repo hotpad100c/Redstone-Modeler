@@ -47,18 +47,76 @@ export function parse_json(text) {
     }
 }
 
+const ASSET_KINDS = new Set(["blockstates", "models", "textures"]);
+
 /**
- * Finds the folder prefix in front of `assets/` (zips often wrap everything in one folder).
+ * Finds the resource files in an archive or folder listing and maps them to `assets/...` paths.
+ *
+ * The `assets` folder is searched level by level: at the top, then one folder down, then deeper, so
+ * `assets/`, `MyPack/assets/` and `mod/src/main/resources/assets/` all work. Only the shallowest
+ * level that has an `assets` folder counts; several `assets` folders at that level (for example
+ * the modules of a mod repository) are merged and the first file wins.
+ * If there is no `assets` folder at all, folders that look like namespaces (they hold
+ * `blockstates`, `models` or `textures`) are used, which covers a zip of the contents of `assets`.
  * @param {string[]} paths
+ * @returns {Map<string, string>} Original path to normalized path
  */
-function find_root(paths) {
-    for (const path of paths) {
-        const match = /^(?:[^/]+\/)?assets\//.exec(path);
-        if (match) {
-            return match[0].slice(0, -"assets/".length);
+export function locate_assets(paths) {
+    const find = (segments, is_root) => {
+        for (let i = 0; i < segments.length - 2; i++) {
+            if (is_root(segments, i)) {
+                return i;
+            }
+        }
+        return -1;
+    };
+    const attempts = [
+        {
+            is_root: (segments, i) => segments[i] === "assets",
+            normalize: (segments, i) => segments.slice(i).join("/"),
+        },
+        {
+            is_root: (segments, i) => ASSET_KINDS.has(segments[i + 1]) && i + 2 < segments.length,
+            normalize: (segments, i) => `assets/${segments.slice(i).join("/")}`,
+        },
+    ];
+    for (const { is_root, normalize } of attempts) {
+        const found = [];
+        for (const path of paths) {
+            const segments = path.split("/");
+            const depth = find(segments, is_root);
+            if (depth >= 0) {
+                found.push({ path, depth, normalized: normalize(segments, depth) });
+            }
+        }
+        if (found.length > 0) {
+            const shallowest = Math.min(...found.map(f => f.depth));
+            const result = new Map();
+            for (const { path, depth, normalized } of found) {
+                if (depth === shallowest) {
+                    result.set(path, normalized);
+                }
+            }
+            return result;
         }
     }
-    return "";
+    return new Map();
+}
+
+/**
+ * Keeps the first file for every normalized path.
+ * @param {{path: string, data: Uint8Array}[]} entries
+ */
+function normalize_entries(entries) {
+    const located = locate_assets(entries.map(e => e.path));
+    const files = new Map();
+    for (const { path, data } of entries) {
+        const normalized = located.get(path);
+        if (normalized && !files.has(normalized)) {
+            files.set(normalized, data);
+        }
+    }
+    return files;
 }
 
 /**
@@ -83,14 +141,7 @@ export class Pack {
         const raw = unzipSync(bytes, {
             filter: file => WANTED.test(file.name) && !file.name.endsWith("/"),
         });
-        const root = find_root(Object.keys(raw));
-        const files = new Map();
-        for (const [path, data] of Object.entries(raw)) {
-            if (path.startsWith(root)) {
-                files.set(path.slice(root.length), data);
-            }
-        }
-        return new Pack(name, files);
+        return new Pack(name, normalize_entries(Object.entries(raw).map(([path, data]) => ({ path, data }))));
     }
 
     /**
@@ -99,16 +150,15 @@ export class Pack {
      * @param {File[]} file_list
      */
     static async from_files(name, file_list) {
+        // The picked folder itself stays in the path: it may be the `assets` folder
         const entries = file_list
-            .map(file => ({ file, path: (file.webkitRelativePath || file.name).split("/").slice(1).join("/") }))
+            .map(file => ({ file, path: file.webkitRelativePath || file.name }))
             .filter(({ path }) => WANTED.test(path));
-        const root = find_root(entries.map(e => e.path));
-        const files = new Map();
-        for (const { file, path } of entries) {
-            if (path.startsWith(root)) {
-                files.set(path.slice(root.length), new Uint8Array(await file.arrayBuffer()));
-            }
-        }
+        const loaded = await Promise.all(entries.map(async ({ file, path }) => ({
+            path,
+            data: new Uint8Array(await file.arrayBuffer()),
+        })));
+        const files = normalize_entries(loaded);
         return new Pack(name, files);
     }
 

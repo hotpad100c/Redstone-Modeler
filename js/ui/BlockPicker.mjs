@@ -9,13 +9,15 @@ export class BlockPicker {
      * @param {object} elements
      * @param {HTMLElement} elements.list
      * @param {HTMLInputElement} elements.search
+     * @param {HTMLSelectElement} elements.namespace Filter for the namespace (mod) of the blocks
      * @param {HTMLElement} elements.states
      * @param {HTMLElement} elements.hotbar
      * @param {import("../render/Icons.mjs").IconRenderer} icons
      */
-    constructor({ list, search, states, hotbar }, icons) {
+    constructor({ list, search, namespace, states, hotbar }, icons) {
         this.list = list;
         this.search = search;
+        this.namespace = namespace;
         this.states = states;
         this.hotbar = hotbar;
         this.icons = icons;
@@ -36,6 +38,7 @@ export class BlockPicker {
             }
         }, { root: list });
         search.addEventListener("input", () => this._filter());
+        namespace.addEventListener("change", () => this._filter());
         this._render_hotbar();
     }
 
@@ -56,6 +59,7 @@ export class BlockPicker {
         this.list.replaceChildren();
         this.items.clear();
         this.slots = this.slots.map(slot => slot && pack?.names.includes(slot.name) ? slot : null);
+        this._fill_namespaces(pack?.names ?? []);
         if (pack) {
             for (const name of pack.names) {
                 const item = document.createElement("button");
@@ -125,10 +129,24 @@ export class BlockPicker {
         this.on_change();
     }
 
+    /** The namespace filter only shows up when the packs have blocks of more than one namespace. */
+    _fill_namespaces(names) {
+        const spaces = [...new Set(names.map(name => name.slice(0, name.indexOf(":"))))].sort();
+        this.namespace.replaceChildren();
+        for (const space of ["", ...spaces]) {
+            const option = document.createElement("option");
+            option.value = space;
+            option.textContent = space === "" ? "All namespaces" : space;
+            this.namespace.appendChild(option);
+        }
+        this.namespace.hidden = spaces.length < 2;
+    }
+
     _filter() {
         const query = this.search.value.trim().toLowerCase().replace(/\s+/g, "_");
+        const space = this.namespace.value;
         for (const [name, item] of this.items) {
-            item.hidden = query !== "" && !name.includes(query);
+            item.hidden = (query !== "" && !name.includes(query)) || (space !== "" && !name.startsWith(`${space}:`));
         }
     }
 
