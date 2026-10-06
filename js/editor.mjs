@@ -10,9 +10,10 @@ import { Scene } from "./render/Scene.mjs";
 import { BlockPicker } from "./ui/BlockPicker.mjs";
 import { PackPanel } from "./ui/PackPanel.mjs";
 import { SettingsPanel } from "./ui/SettingsPanel.mjs";
-import { SharePanel } from "./ui/SharePanel.mjs";
+import { SharePanel, read_text } from "./ui/SharePanel.mjs";
 import { StateBar } from "./ui/StateBar.mjs";
-import { SHARE_PREFIX, decode_code, read_model } from "./share/Share.mjs";
+import { parse_link } from "./share/Network.mjs";
+import { is_code, read_model, to_standard } from "./share/Share.mjs";
 
 const AUTOSAVE_KEY = "redstone-modeler.autosave";
 const $ = id => document.getElementById(id);
@@ -69,10 +70,11 @@ settings_panel.on_ui_language_change = () => {
 
 /**
  * Opens a shared model: its resources become the pack in use, then the blocks are placed.
- * @param {Uint8Array} bytes Contents of a `.rmmodel`
+ * @param {Uint8Array} shared Contents of a `.rmmodel`, or a compact share
  * @returns {Promise<string>} Name of the pack that came with it
  */
-async function open_shared(bytes) {
+async function open_shared(shared) {
+    const bytes = await to_standard(shared);
     const { world: save } = read_model(bytes);
     const name = await pack_panel.add_compiled(bytes);
     deserialize(save, world);
@@ -87,6 +89,7 @@ const share_panel = new SharePanel({
     get_resources: () => resources,
     get_language: () => settings_panel.effective_language(),
     on_open: open_shared,
+    settings,
 });
 $("share_button").addEventListener("click", () => share_panel.open());
 
@@ -289,8 +292,8 @@ $("save_button").addEventListener("click", async () => {
 $("load_button").addEventListener("click", async () => {
     try {
         const code = $("load_input").value;
-        if (code.trim().startsWith(SHARE_PREFIX)) {
-            await open_shared(decode_code(code));
+        if (is_code(code) || parse_link(code)) {
+            await open_shared(await read_text(code));
             flash($("load_button"), t("top.loaded"));
             return;
         }
@@ -377,4 +380,31 @@ try {
 catch (e) {
     console.warn("Could not load the saved resource pack", e);
     show_pack_problem(String(e?.message ?? e));
+}
+
+// A link to a shared model: #share=<service>.<id>
+{
+    const link = parse_link(location.hash.slice(1).startsWith("share=") ? location.hash : "");
+    if (link) {
+        const banner = $("link_banner");
+        const show = (message, error = false) => {
+            banner.hidden = false;
+            banner.classList.toggle("error", error);
+            banner.textContent = message;
+        };
+        show(t("link.loading"));
+        try {
+            const name = await open_shared(await read_text(location.hash));
+            // So that a reload does not replace what was built since
+            history.replaceState(null, "", location.pathname + location.search);
+            show(t("share.opened", { name }));
+            setTimeout(() => {
+                banner.hidden = true;
+            }, 4000);
+        }
+        catch (e) {
+            console.error(e);
+            show(t("link.failed", { reason: e.message }), true);
+        }
+    }
 }

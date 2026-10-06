@@ -76,7 +76,8 @@ export class BlockPicker {
     _search_text(id) {
         const english = this.pack.display_name(id, "");
         const chosen = this.name_language ? this.pack.display_name(id, this.name_language) : "";
-        return [id, english, chosen].join("\n").toLowerCase();
+        // A minimal share has codes for ids; only the names are left to look for
+        return [this.pack.data.minimal ? "" : id, english, chosen].join("\n").toLowerCase();
     }
 
     /** Redraws what contains interface text, after the language of the interface changed. */
@@ -116,7 +117,7 @@ export class BlockPicker {
                 item.type = "button";
                 item.className = "block_item";
                 item.dataset.name = name;
-                item.title = name;
+                item.title = pack.data.minimal ? this.label_of(name) : name;
                 item.dataset.search = this._search_text(name);
                 const img = document.createElement("img");
                 img.alt = "";
@@ -238,7 +239,7 @@ export class BlockPicker {
         const title = document.createElement("div");
         title.className = "states_title";
         title.textContent = this.label_of(block.name);
-        title.title = block.name;
+        title.title = this.pack?.data.minimal ? this.label_of(block.name) : block.name;
         this.states.appendChild(title);
         const properties = Object.entries(this.pack.properties(block.name));
         if (properties.length === 0) {
@@ -278,7 +279,7 @@ export class BlockPicker {
             button.type = "button";
             button.className = "slot";
             button.classList.toggle("selected", index === this.slot);
-            button.title = block ? `${this.label_of(block.name)} (${block.name})` : t("hotbar.empty");
+            button.title = block ? (this.pack?.data.minimal ? this.label_of(block.name) : `${this.label_of(block.name)} (${block.name})`) : t("hotbar.empty");
             const number = document.createElement("span");
             number.textContent = String(index + 1);
             button.appendChild(number);

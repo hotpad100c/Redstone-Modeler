@@ -1,4 +1,6 @@
 import { t } from "../i18n/i18n.mjs";
+import { save as save_settings } from "../model/Settings.mjs";
+import { SERVICES, download, parse_link, share_link, upload } from "../share/Network.mjs";
 import { CHAT_LIMIT, decode_code, export_model } from "../share/Share.mjs";
 
 /** Codes longer than this are not put into the text box, which gets slow with millions of characters. */
@@ -6,6 +8,16 @@ const SHOW_LIMIT = 100_000;
 
 function format_size(bytes) {
     return bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/**
+ * The share in pasted text: a link to a network clipboard, or a share code.
+ * @param {string} text
+ * @returns {Promise<Uint8Array>}
+ */
+export async function read_text(text) {
+    const link = parse_link(text);
+    return link ? download(link.service, link.id) : decode_code(text);
 }
 
 /**
@@ -19,8 +31,14 @@ export class SharePanel {
      * @param {() => import("../render/Resources.mjs").Resources|null} options.get_resources
      * @param {() => string} options.get_language Language code of the block names that are in use, "" for English only
      * @param {(bytes: Uint8Array) => Promise<string>} options.on_open Opens a shared model, gives the name of its pack
+     * @param {ReturnType<typeof import("../model/Settings.mjs").normalize>} options.settings Remembers the service and whether uploading was agreed to
+     * @param {() => string} [options.get_base] Address of this page, for links
+     * @param {(message: string) => boolean} [options.ask] Asks for agreement
      */
-    constructor({ dialog, world, get_resources, get_language, on_open }) {
+    constructor({ dialog, world, get_resources, get_language, on_open, settings, get_base = () => location.href, ask = message => window.confirm(message) }) {
+        this.settings = settings;
+        this.get_base = get_base;
+        this.ask = ask;
         this.dialog = dialog;
         this.world = world;
         this.get_resources = get_resources;
@@ -42,9 +60,27 @@ export class SharePanel {
         this.status = $("share_status");
         this.paste = $("share_paste");
         this.open_status = $("share_open_status");
+        this.compact = $("share_compact");
+        this.minimal = $("share_minimal");
+        this.service = $("share_service");
+        this.link_button = $("share_link_button");
+        this.link = $("share_link");
+        this.service.value = SERVICES[settings.share_service] ? settings.share_service : "mclogs";
 
         this.scope.addEventListener("change", () => this.refresh());
         this.all_languages.addEventListener("change", () => this.refresh());
+        this.compact.addEventListener("change", () => this.refresh());
+        this.minimal.addEventListener("change", () => {
+            // Minimal is built on the compact form
+            this.compact.checked = this.compact.checked || this.minimal.checked;
+            this.compact.disabled = this.minimal.checked;
+            this.refresh();
+        });
+        this.service.addEventListener("change", () => {
+            this.settings.share_service = this.service.value;
+            save_settings(this.settings);
+        });
+        this.link_button.addEventListener("click", () => this.copy_link());
         this.copy_button.addEventListener("click", () => this.copy());
         this.download_button.addEventListener("click", () => this.download());
         $("share_close").addEventListener("click", () => dialog.close());
@@ -71,8 +107,11 @@ export class SharePanel {
         this.parts.textContent = "";
         this.warning.textContent = "";
         this.code.value = "";
+        this.link.hidden = true;
+        this.link.value = "";
         this.copy_button.disabled = true;
         this.download_button.disabled = true;
+        this.link_button.disabled = true;
     }
 
     /** Packs the model again; the result is kept so that Copy can run in the click, which some browsers need. */
@@ -95,6 +134,8 @@ export class SharePanel {
                 scope: this.scope.value,
                 language: this.get_language(),
                 all_languages: this.all_languages.checked,
+                compact: this.compact.checked || this.minimal.checked,
+                minimal: this.minimal.checked,
             });
         }
         catch (error) {
@@ -114,6 +155,9 @@ export class SharePanel {
             size: format_size(stats.bytes),
             chars: stats.code_length.toLocaleString(),
         });
+        if (stats.compact) {
+            this.stats.textContent += ` · ${t("share.compare", { standard: stats.standard_code_length.toLocaleString() })}`;
+        }
         this.parts.textContent = t("share.parts", {
             models: format_size(stats.parts.models),
             pictures: format_size(stats.parts.pictures),
@@ -129,6 +173,49 @@ export class SharePanel {
         }
         this.copy_button.disabled = false;
         this.download_button.disabled = false;
+        this.link_button.disabled = false;
+    }
+
+    /** Uploads the share to the chosen network clipboard and copies a link to it. */
+    async copy_link() {
+        if (!this.result) {
+            return;
+        }
+        const key = this.service.value;
+        const service = SERVICES[key];
+        if (!this.settings.share_consent) {
+            if (!this.ask(t("share.consent", { service: service.name }))) {
+                return;
+            }
+            this.settings.share_consent = true;
+            save_settings(this.settings);
+        }
+        const result = this.result;
+        this.status.classList.remove("error");
+        this.status.textContent = t("share.uploading", { service: service.name });
+        this.link_button.disabled = true;
+        try {
+            const done = await upload(key, result.raw);
+            const link = share_link(this.get_base(), done);
+            this.link.value = link;
+            this.link.hidden = false;
+            try {
+                await navigator.clipboard.writeText(link);
+                this.status.textContent = t("share.link_copied");
+            }
+            catch {
+                this.status.textContent = t("share.link_copy_failed");
+                this.link.select();
+            }
+        }
+        catch (error) {
+            console.error(error);
+            this.status.classList.add("error");
+            this.status.textContent = t("share.upload_failed", { reason: error.message });
+        }
+        finally {
+            this.link_button.disabled = false;
+        }
     }
 
     async copy() {
@@ -169,7 +256,7 @@ export class SharePanel {
     }
 
     open_code() {
-        return this._open(() => decode_code(this.paste.value));
+        return this._open(() => read_text(this.paste.value));
     }
 
     /** @param {File} file */

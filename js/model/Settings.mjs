@@ -9,6 +9,9 @@ export const DEFAULTS = Object.freeze({
     language: "auto",
     // Language of the block names that are shown and searched in addition to English; "" is English only
     search_language: "zh_cn",
+    // Network clipboard for share links, and whether the user agreed to uploading
+    share_service: "mclogs",
+    share_consent: false,
 });
 
 const STORAGE_KEY = "redstone-modeler.settings";
@@ -52,6 +55,8 @@ export function normalize(raw) {
         && (input.search_language === "" || LANGUAGE_CODE.test(input.search_language))
             ? input.search_language
             : DEFAULTS.search_language,
+        share_service: typeof input.share_service === "string" && /^[a-z]{2,16}$/.test(input.share_service) ? input.share_service : DEFAULTS.share_service,
+        share_consent: input.share_consent === true,
     };
 }
 
