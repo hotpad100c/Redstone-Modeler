@@ -1,5 +1,5 @@
 import { PackStack } from "./PackStack.mjs";
-import { build_atlas, decode_png } from "./Atlas.mjs";
+import { build_atlas, decode_png, image_to_canvas } from "./Atlas.mjs";
 import { CompiledPack } from "./CompiledPack.mjs";
 import { collect } from "./Compiler.mjs";
 import { read_rmpack, write_rmpack } from "./Rmpack.mjs";
@@ -11,13 +11,9 @@ const COLORMAPS = ["grass", "foliage"];
  * @param {Uint8Array} bytes
  */
 async function decode_colormap(bytes) {
-    const image = await decode_png(bytes);
-    const canvas = typeof OffscreenCanvas !== "undefined"
-        ? new OffscreenCanvas(image.width, image.height)
-        : Object.assign(document.createElement("canvas"), { width: image.width, height: image.height });
+    const canvas = image_to_canvas(await decode_png(bytes));
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(image, 0, 0);
-    return { width: image.width, height: image.height, data: ctx.getImageData(0, 0, image.width, image.height).data };
+    return { width: canvas.width, height: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
 }
 
 /**
@@ -60,7 +56,7 @@ export async function compile(packs, { name, extra_properties = {}, fallback, pr
 
 /**
  * @param {Uint8Array} bytes Contents of a `.rmpack`
- * @returns {Promise<{pack: CompiledPack, atlas_image: ImageBitmap}>}
+ * @returns {Promise<{pack: CompiledPack, atlas_image: HTMLCanvasElement}>}
  */
 export async function load_compiled(bytes) {
     const { data, atlas_png, colormaps } = read_rmpack(bytes);
@@ -72,6 +68,6 @@ export async function load_compiled(bytes) {
     }
     return {
         pack: new CompiledPack(data, { colormaps: decoded }),
-        atlas_image: await decode_png(atlas_png),
+        atlas_image: image_to_canvas(await decode_png(atlas_png)),
     };
 }

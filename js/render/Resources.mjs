@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "../../lib/three.module.min.js";
 import { make_tint } from "./Tint.mjs";
 
 /**
@@ -7,13 +7,14 @@ import { make_tint } from "./Tint.mjs";
 export class Resources {
     /**
      * @param {import("../pack/CompiledPack.mjs").CompiledPack} pack
-     * @param {ImageBitmap} atlas_image
+     * @param {HTMLCanvasElement} atlas_image The texture atlas; a canvas is the texture source browsers handle most reliably
      */
     constructor(pack, atlas_image) {
         this.pack = pack;
         this.tint = make_tint(pack.colormaps);
-        this.texture = new THREE.Texture(atlas_image);
+        this.texture = new THREE.CanvasTexture(atlas_image);
         this.texture.flipY = false;
+        this.texture.premultiplyAlpha = false;
         this.texture.colorSpace = THREE.SRGBColorSpace;
         this.texture.magFilter = THREE.NearestFilter;
         this.texture.minFilter = THREE.NearestFilter;

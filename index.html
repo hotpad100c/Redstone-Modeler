@@ -5,8 +5,52 @@
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
         <title>Redstone Modeler</title>
         <link rel="stylesheet" href="app.css" />
-        <script type="importmap">
-            { "imports": { "three": "./lib/three.module.min.js" } }
+        <meta name="build" content="dev" />
+        <script>
+            // Shows problems on the page. Without this a browser that cannot run the editor just
+            // shows a dead page, and the reason is only in the developer console.
+            (function () {
+                var messages = [];
+                var banner = null;
+                function webgl2() {
+                    try { return !!document.createElement("canvas").getContext("webgl2"); } catch (e) { return false; }
+                }
+                function render() {
+                    if (!banner) {
+                        banner = document.createElement("div");
+                        banner.id = "error_banner";
+                        banner.style.cssText = "position:fixed;z-index:10000;left:0;right:0;top:0;padding:8px 12px;background:#b00020;color:#fff;font:12px/1.4 sans-serif;white-space:pre-wrap;word-break:break-word";
+                        (document.body || document.documentElement).appendChild(banner);
+                    }
+                    var build = (document.querySelector("meta[name=build]") || {}).content;
+                    banner.textContent = messages.join("\n") + "\n\n[build " + build + " | WebGL2: " + webgl2() + " | " + navigator.userAgent + "]";
+                    var close = document.createElement("button");
+                    close.textContent = "x";
+                    close.style.cssText = "position:absolute;right:6px;top:6px;border:1px solid #fff;background:transparent;color:#fff;border-radius:4px";
+                    close.onclick = function () { banner.remove(); banner = null; };
+                    banner.appendChild(close);
+                }
+                function note(message) {
+                    if (messages.indexOf(message) < 0) { messages.push(message); }
+                    if (document.body) { render(); } else { document.addEventListener("DOMContentLoaded", render); }
+                }
+                window.__rm_boot = { note: note, count: function () { return messages.length; } };
+                window.addEventListener("error", function (e) {
+                    if (e.target && e.target !== window && (e.target.src || e.target.href)) {
+                        note("Could not load " + (e.target.src || e.target.href));
+                    } else {
+                        note((e.message || "Error") + (e.filename ? " (" + String(e.filename).split("/").slice(-2).join("/") + ":" + e.lineno + ")" : ""));
+                    }
+                }, true);
+                window.addEventListener("unhandledrejection", function (e) {
+                    note("Unhandled error: " + ((e.reason && e.reason.message) || e.reason));
+                });
+                setTimeout(function () {
+                    if (!window.__rm) {
+                        note(messages.length ? "The editor did not start." : "The editor did not start. This browser may be too old: Safari 15 or newer is needed.");
+                    }
+                }, 6000);
+            })();
         </script>
         <script src="lzma/lzma_worker-min.js"></script>
     </head>
@@ -35,9 +79,11 @@
                 <canvas id="gizmo" title="Click an axis to look along it, the centre for the default view"></canvas>
                 <div id="onboarding">
                     <h2>Import a resource pack to start</h2>
+                    <p id="onboarding_note" class="error" hidden></p>
                     <p>Blocks, models and block states are read from the resource packs you provide. Nothing is uploaded; the compiled result is cached in this browser.</p>
                     <button type="button" id="onboarding_button">Import resource packs</button>
                 </div>
+                <div id="build_id" class="note"></div>
                 <div id="help">Click: place · Right click or Eraser (E): remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · Axis ball: 2D views, then [ ] moves the plane</div>
             </div>
             <div id="sidebar">
@@ -93,7 +139,7 @@
             <section>
                 <h3>1. Stack packs</h3>
                 <div class="row">
-                    <label class="file_button">Add pack (.zip / .rmpack)<input id="pack_file" type="file" multiple accept=".zip,.rmpack" /></label>
+                    <label class="file_button">Add pack (.zip / .rmpack)<input id="pack_file" type="file" multiple accept=".zip,.rmpack,application/zip,application/octet-stream" /></label>
                     <label class="file_button">Add folder<input id="pack_folder" type="file" webkitdirectory /></label>
                 </div>
                 <ol id="source_list"></ol>

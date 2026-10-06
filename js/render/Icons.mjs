@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "../../lib/three.module.min.js";
 import { MeshData } from "./MeshData.mjs";
 
 /**

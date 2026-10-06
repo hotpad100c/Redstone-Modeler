@@ -2,9 +2,8 @@ import { MISSING } from "../render/BlockMesher.mjs";
 import { asset_path } from "./PackStack.mjs";
 
 function make_canvas(width, height) {
-    if (typeof OffscreenCanvas !== "undefined") {
-        return new OffscreenCanvas(width, height);
-    }
+    // A plain canvas: building the atlas happens on the main thread anyway, and OffscreenCanvas
+    // is missing or incomplete in some Safari versions
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -12,24 +11,54 @@ function make_canvas(width, height) {
 }
 
 /**
- * @param {OffscreenCanvas|HTMLCanvasElement} canvas
+ * @param {HTMLCanvasElement} canvas
  * @returns {Promise<Uint8Array>}
  */
 export async function canvas_to_png(canvas) {
-    const blob = canvas.convertToBlob
-        ? await canvas.convertToBlob({ type: "image/png" })
-        : await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+    const blob = await new Promise((resolve, reject) => canvas.toBlob(
+        result => result ? resolve(result) : reject(new Error("The browser could not encode the texture atlas")),
+        "image/png",
+    ));
     return new Uint8Array(await blob.arrayBuffer());
 }
 
 /**
+ * Decodes PNG bytes. Prefers createImageBitmap, falls back to an image element for browsers
+ * that lack it or reject its options.
  * @param {Uint8Array} bytes
+ * @returns {Promise<ImageBitmap|HTMLImageElement>}
  */
-export function decode_png(bytes) {
-    return createImageBitmap(new Blob([bytes], { type: "image/png" }), {
-        premultiplyAlpha: "none",
-        colorSpaceConversion: "none",
-    });
+export async function decode_png(bytes) {
+    const blob = new Blob([bytes], { type: "image/png" });
+    if (typeof createImageBitmap === "function") {
+        try {
+            return await createImageBitmap(blob);
+        }
+        catch {
+            // Fall through to the image element
+        }
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        return image;
+    }
+    finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+/**
+ * Draws a decoded image onto a canvas. Canvases are the most widely supported WebGL texture source.
+ * @param {ImageBitmap|HTMLImageElement} image
+ * @returns {HTMLCanvasElement}
+ */
+export function image_to_canvas(image) {
+    const canvas = make_canvas(image.width, image.height);
+    canvas.getContext("2d").drawImage(image, 0, 0);
+    return canvas;
 }
 
 function next_pow2(n) {

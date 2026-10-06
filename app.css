@@ -119,6 +119,14 @@ button.selected, .selected {
     pointer-events: none;
 }
 
+#build_id {
+    position: absolute;
+    right: 8px;
+    bottom: 6px;
+    pointer-events: none;
+    font-size: 11px;
+}
+
 #onboarding {
     position: absolute;
     inset: 0;

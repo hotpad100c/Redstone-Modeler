@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "../../lib/three.module.min.js";
 
 const AXES = [
     { name: "+x", vec: [1, 0, 0], color: "#e8584f", label: "X" },

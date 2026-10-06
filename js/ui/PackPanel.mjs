@@ -29,6 +29,8 @@ export class PackPanel {
         this.on_use = on_use;
         this.extra_properties = extra_properties;
         this.fallback = fallback;
+        /** Resolves when the data files for compiling are loaded */
+        this.ready = Promise.resolve();
         /** @type {{name: string, size: number, lastModified: number, pack: Pack}[]} Highest priority first */
         this.sources = [];
         this.active = null;
@@ -40,6 +42,12 @@ export class PackPanel {
         this.compile_button = $("compile_button");
         this.storage_note = $("storage_note");
 
+        // iOS cannot pick folders; without this the button would do nothing
+        const folder_input = $("pack_folder");
+        const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        if (ios || !("webkitdirectory" in folder_input)) {
+            folder_input.closest("label").hidden = true;
+        }
         $("pack_file").addEventListener("change", (e) => {
             this.add_files([...e.target.files]);
             e.target.value = "";
@@ -118,6 +126,7 @@ export class PackPanel {
         const name = this.name_input.value.trim() || this.sources.map(s => s.name).join(" + ");
         this.compile_button.disabled = true;
         try {
+            await this.ready;
             const bytes = await compile(this.sources.map(s => s.pack), {
                 name,
                 extra_properties: this.extra_properties,
