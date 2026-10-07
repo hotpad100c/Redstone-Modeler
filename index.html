@@ -69,6 +69,7 @@
             <span id="pack_summary" class="note" data-i18n="top.no_pack">none loaded</span>
             <button type="button" id="erase_button" data-i18n="top.eraser" data-i18n-title="top.eraser_title" title="Eraser: left click removes blocks (E)">Eraser</button>
             <button type="button" id="clear_button" data-i18n="top.clear" data-i18n-title="top.clear_title" title="Remove every block">Clear</button>
+            <button type="button" id="fp_button" data-i18n="top.first_person" data-i18n-title="top.first_person_title" title="Fly around inside the model (F)">First person</button>
             <button type="button" id="settings_button" data-i18n="top.settings">Settings</button>
             <button type="button" id="image_button" data-i18n="top.copy_image">Copy image</button>
             <button type="button" id="share_button" data-i18n="top.share" data-i18n-title="top.share_title" title="Share this model together with the resources it uses">Share</button>
@@ -93,6 +94,24 @@
                     <p id="onboarding_note" class="error" hidden></p>
                     <p data-i18n="onboarding.text">Blocks, models and block states are read from the resource packs you provide. Nothing is uploaded; the compiled result is cached in this browser.</p>
                     <button type="button" id="onboarding_button" data-i18n="onboarding.button">Import resource packs</button>
+                </div>
+                <div id="fp_overlay" hidden>
+                    <div id="fp_crosshair"></div>
+                    <div id="fp_top">
+                        <button type="button" id="fp_blocks" data-i18n="fp.blocks" data-i18n-title="fp.blocks_title" title="Choose a block (E)">Blocks</button>
+                        <button type="button" id="fp_exit" data-i18n="fp.exit" data-i18n-title="fp.exit_title" title="Back to the model (F)">Exit</button>
+                    </div>
+                    <div id="fp_stick"><div id="fp_knob"></div></div>
+                    <div id="fp_lift">
+                        <button type="button" id="fp_up" data-i18n-title="fp.up_title" title="Up (Space)">▲</button>
+                        <button type="button" id="fp_down" data-i18n-title="fp.down_title" title="Down (Shift)">▼</button>
+                    </div>
+                    <div id="fp_pause" hidden>
+                        <p data-i18n="fp.paused">Paused</p>
+                        <button type="button" id="fp_resume" data-i18n="fp.resume">Continue</button>
+                        <button type="button" id="fp_leave" data-i18n="fp.leave">Leave first person</button>
+                        <p class="note" data-i18n="fp.keys">W A S D fly, Space up, Shift down, double tap W sprints. Left click breaks, right click places, middle click picks, the wheel changes the block in hand.</p>
+                    </div>
                 </div>
                 <div id="build_id" class="note"></div>
                 <div id="help" data-i18n="help.text">Click: place · Right click or Eraser (E): remove · Alt+click: pick · Drag: rotate · Right drag: pan · Wheel: zoom · 1-9: hotbar · Axis ball: 2D views, then [ ] moves the plane</div>
@@ -224,6 +243,21 @@
                 <div class="row">
                     <label><span data-i18n="settings.plane_colour">2D plane</span> <input id="plane_color" type="color" /></label>
                     <label><span data-i18n="settings.opacity">Opacity</span> <input id="plane_opacity" type="range" min="0" max="1" step="0.01" /> <span id="plane_opacity_value"></span></label>
+                </div>
+            </section>
+            <section>
+                <h3 data-i18n="settings.controls">Controls</h3>
+                <div class="row">
+                    <label><span data-i18n="settings.mouse">Mouse buttons</span>
+                        <select id="mouse_mapping">
+                            <option value="minecraft" data-i18n="settings.mouse_minecraft">Like Minecraft: left breaks, right places</option>
+                            <option value="classic" data-i18n="settings.mouse_classic">Classic: left places, right breaks</option>
+                        </select></label>
+                </div>
+                <p class="note" data-i18n="settings.mouse_help">A finger taps to place and presses and holds to break. The middle button, or Alt and click, takes the block into the hotbar.</p>
+                <div class="row">
+                    <label><span data-i18n="settings.fly_speed">First person speed (blocks per second)</span> <input id="fly_speed" type="number" min="2" max="30" step="1" inputmode="numeric" /></label>
+                    <label><span data-i18n="settings.look">Turning with a finger</span> <input id="look_sensitivity" type="range" min="0.2" max="3" step="0.1" /></label>
                 </div>
             </section>
             <div class="row">

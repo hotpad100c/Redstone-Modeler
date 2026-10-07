@@ -556,3 +556,140 @@ dialog textarea {
 #link_banner.error {
     background: #7a1f1f;
 }
+
+/* First person: the view takes the whole page, with the hotbar kept */
+#fp_overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+#fp_overlay[hidden] {
+    display: none;
+}
+
+#fp_overlay button {
+    pointer-events: auto;
+}
+
+#fp_crosshair {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    background:
+        linear-gradient(#fff, #fff) center / 100% 2px no-repeat,
+        linear-gradient(#fff, #fff) center / 2px 100% no-repeat;
+    mix-blend-mode: difference;
+}
+
+body.fp-touch #fp_crosshair {
+    display: none;
+}
+
+#fp_top {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+}
+
+#fp_stick,
+#fp_lift {
+    display: none;
+}
+
+body.fp-touch #fp_stick {
+    display: block;
+    position: absolute;
+    left: 24px;
+    bottom: 24px;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: #ffffff22;
+    border: 2px solid #ffffff55;
+    pointer-events: auto;
+    touch-action: none;
+}
+
+#fp_knob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 52px;
+    height: 52px;
+    margin: -26px 0 0 -26px;
+    border-radius: 50%;
+    background: #ffffff66;
+    pointer-events: none;
+}
+
+body.fp-touch #fp_lift {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: absolute;
+    right: 20px;
+    bottom: 24px;
+}
+
+#fp_lift button {
+    width: 56px;
+    height: 56px;
+    font-size: 22px;
+    border-radius: 50%;
+    opacity: 0.8;
+    touch-action: none;
+}
+
+#fp_pause {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px;
+    text-align: center;
+    background: #000000a0;
+    pointer-events: auto;
+}
+
+#fp_pause[hidden] {
+    display: none;
+}
+
+#fp_pause p {
+    max-width: 420px;
+    margin: 0;
+}
+
+body.first-person #top_bar,
+body.first-person #sidebar,
+body.first-person #state_bar,
+body.first-person #gizmo,
+body.first-person #help,
+body.first-person #state_toggle {
+    display: none;
+}
+
+body.first-person.fp-inventory #sidebar {
+    display: flex;
+    position: absolute;
+    z-index: 30;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(320px, 90%);
+    height: auto;
+    border: 0;
+}
+
+body.first-person.fp-inventory #fp_blocks {
+    outline: 2px solid #ffff00;
+}

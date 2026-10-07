@@ -10,6 +10,7 @@ import { Scene } from "./render/Scene.mjs";
 import { BlockPicker } from "./ui/BlockPicker.mjs";
 import { PackPanel } from "./ui/PackPanel.mjs";
 import { SettingsPanel } from "./ui/SettingsPanel.mjs";
+import { FirstPersonUI } from "./ui/FirstPersonUI.mjs";
 import { SchematicPanel } from "./ui/SchematicPanel.mjs";
 import { SharePanel, read_text } from "./ui/SharePanel.mjs";
 import { StateBar } from "./ui/StateBar.mjs";
@@ -104,6 +105,8 @@ const schematic_panel = new SchematicPanel({
     },
 });
 $("schematic_button").addEventListener("click", () => schematic_panel.open());
+
+const first_person = new FirstPersonUI({ scene, picker, settings });
 
 // What the top bar says about the pack. Elements with data-i18n are translated by the page, so the
 // attribute is only there while the text is a translatable one.
@@ -225,20 +228,21 @@ function reset_clear_button() {
     $("clear_button").classList.remove("error");
 }
 
-scene.on_click = (x, y, z, button, event) => {
-    if (button === 2 || (scene.erase && button === 0 && !event.altKey)) {
+scene.mapping = settings.mouse_mapping;
+scene.on_action = (action, x, y, z) => {
+    if (action === "break") {
         world.remove(x, y, z);
     }
-    else if (event.altKey) {
+    else if (action === "pick") {
         const block = world.get(x, y, z);
         if (block) {
             picker.select(block.name, block.props);
         }
     }
-    else if (button === 0) {
+    else {
         const selected = picker.selected;
         if (selected) {
-            // In the 2D view clicking an occupied cell replaces the block
+            // In the 2D view placing on an occupied cell replaces the block
             world.set(x, y, z, selected);
         }
     }
@@ -261,7 +265,14 @@ window.addEventListener("keydown", (e) => {
     if (e.target.matches("input, select, textarea") || e.metaKey) {
         return;
     }
-    if (NUMPAD_VIEWS[e.code]) {
+    if (first_person.active && !/^Digit[1-9]$/.test(e.code)) {
+        // In first person the other keys fly (see FirstPersonUI)
+        return;
+    }
+    if (e.code === "KeyF" && !e.ctrlKey) {
+        first_person.enter();
+    }
+    else if (NUMPAD_VIEWS[e.code]) {
         scene.view_to(`${e.ctrlKey ? "-" : "+"}${NUMPAD_VIEWS[e.code]}`);
     }
     else if (e.code === "Numpad5") {
@@ -388,7 +399,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Exposed for tests and debugging. Set before the saved pack loads: the interface is usable from here on.
-window.__rm = { world, scene, picker, pack_panel, state_bar, share_panel, schematic_panel, get resources() {
+window.__rm = { world, scene, picker, pack_panel, state_bar, share_panel, schematic_panel, first_person, get resources() {
     return resources;
 } };
 

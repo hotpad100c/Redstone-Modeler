@@ -2,11 +2,17 @@ import * as THREE from "../../lib/three.module.min.js";
 import { OrbitControls } from "../../lib/OrbitControls.js";
 import { AxisGizmo } from "./AxisGizmo.mjs";
 import { WorldMesh } from "./WorldMesh.mjs";
+import { LONG_PRESS_MS, REPEAT_MS, action_for, hover_target } from "../model/Input.mjs";
+import { FlyCamera } from "./FirstPerson.mjs";
 
 const CLICK_MOVE_LIMIT = 5; // pixels; more than this is a camera drag, not a click
 const ISO_DIRECTION = new THREE.Vector3(0.4, 0.6, 0.7).normalize();
 const ALIGN_LIMIT = Math.cos(THREE.MathUtils.degToRad(0.5)); // rotating further than this leaves a 2D view
 const TRANSITION_MS = 260;
+/** How far from the view a block can be reached in first person, in blocks */
+const REACH = 10;
+/** Where the first person view starts, in blocks from what the orbit camera looked at */
+const FLY_START_DISTANCE = 12;
 const AXIS_VECTORS = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
 
 /** Lines of a w by h grid in the local xz plane, centred on the origin. */
@@ -44,8 +50,10 @@ export class Scene {
         this.view = null;
         /** Index of the plane in 2D mode, along the view axis */
         this.plane = 0;
-        /** @type {(x: number, y: number, z: number, button: number, event: PointerEvent) => void} */
-        this.on_click = () => {};
+        /** @type {(action: "place"|"break"|"pick", x: number, y: number, z: number, event: object) => void} What the user asked for, see model/Input.mjs */
+        this.on_action = () => {};
+        /** `minecraft`: left breaks, right places; `classic`: the other way round */
+        this.mapping = "minecraft";
         /** @type {() => void} Called when the view mode or the plane changes */
         this.on_view_change = () => {};
         this.animation = null;
@@ -58,6 +66,17 @@ export class Scene {
         this.scene.background = new THREE.Color(0x404040);
 
         this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -500, 500);
+        /** The camera of first person; `fly` holds where it is, and is null in the other views */
+        this.fp_camera = new THREE.PerspectiveCamera(70, 1, 0.05, 2000);
+        this.fp_camera.rotation.order = "YXZ";
+        /** @type {FlyCamera|null} */
+        this.fly = null;
+        this.reach = REACH;
+        /** Called every frame in first person with the seconds since the last one and the time in ms: where the keys and fingers move the camera */
+        this.on_fly_frame = () => {};
+        /** Whether the middle of the view shows what a click would do (a mouse, not a finger) */
+        this.fp_crosshair = false;
+        this._last_frame = 0;
         this.center = new THREE.Vector3(world.size.x / 2, world.size.y / 2, world.size.z / 2);
         this.camera.position.copy(this.center).addScaledVector(ISO_DIRECTION, 60);
         this.controls = new OrbitControls(this.camera, canvas);
@@ -90,6 +109,54 @@ export class Scene {
         this.resize();
         this._frame = this._frame.bind(this);
         requestAnimationFrame(this._frame);
+    }
+
+    /** The camera that is drawn from and picked with */
+    get active_camera() {
+        return this.fly ? this.fp_camera : this.camera;
+    }
+
+    get first_person() {
+        return this.fly !== null;
+    }
+
+    /** Flies in from where the orbit camera was, looking at what it looked at. */
+    enter_first_person() {
+        if (this.fly) {
+            return;
+        }
+        this.animation = null;
+        this._exit_view();
+        this.controls.enabled = false;
+        const target = this.controls.target.clone();
+        const away = this.camera.position.clone().sub(target);
+        const start = target.clone().addScaledVector(away.normalize(), Math.min(away.length() || 1, FLY_START_DISTANCE));
+        this.fly = new FlyCamera();
+        this.fly.aim(start.toArray(), target.toArray());
+        this.floor_grid.visible = false;
+        this.hover.visible = false;
+        this.resize();
+        this._apply_fly();
+    }
+
+    exit_first_person() {
+        if (!this.fly) {
+            return;
+        }
+        this.fly = null;
+        this.fp_crosshair = false;
+        this.controls.enabled = true;
+        this.hover.visible = false;
+        this.floor_grid.visible = true;
+        this.resize();
+        this._update_plane();
+    }
+
+    _apply_fly() {
+        const { position, yaw, pitch } = this.fly;
+        this.fp_camera.position.set(position[0], position[1], position[2]);
+        this.fp_camera.rotation.set(pitch, yaw, 0, "YXZ");
+        this.fp_camera.updateMatrixWorld(true);
     }
 
     /** Floor grid, floor picking plane and bounding box for the current world size. */
@@ -174,7 +241,7 @@ export class Scene {
      */
     screen_position(x, y, z) {
         const rect = this.canvas.getBoundingClientRect();
-        const p = new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5).project(this.camera);
+        const p = new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5).project(this.active_camera);
         return { x: rect.left + (p.x + 1) / 2 * rect.width, y: rect.top + (1 - p.y) / 2 * rect.height };
     }
 
@@ -310,6 +377,9 @@ export class Scene {
         this.camera.right = half * aspect;
         this.camera.top = half;
         this.camera.bottom = -half;
+        this.fp_camera.aspect = aspect;
+        this.fp_camera.far = Math.max(this.world.size.x, this.world.size.y, this.world.size.z) * 2 + 500;
+        this.fp_camera.updateProjectionMatrix();
         // Orthographic: everything between the near and far planes is drawn, so a big world needs deep ones
         this.camera.near = -(half * 2 + 500);
         this.camera.far = half * 2 + 500;
@@ -329,11 +399,16 @@ export class Scene {
             ((client_x - rect.left) / rect.width) * 2 - 1,
             -((client_y - rect.top) / rect.height) * 2 + 1,
         );
-        this.raycaster.setFromCamera(ndc, this.camera);
+        this.raycaster.setFromCamera(ndc, this.active_camera);
+        this.raycaster.far = this.fly ? this.reach : Infinity;
         if (this.view) {
             return this._pick_plane();
         }
-        this.world_mesh.flush();
+        if (!this.world_mesh.idle) {
+            this.world_mesh.flush();
+            // Chunks that were just built have not been drawn yet, and the ray needs where they are
+            this.world_mesh.group.updateMatrixWorld(true);
+        }
         const hits = this.raycaster.intersectObjects([...this.world_mesh.meshes, this.floor_plane], false);
         if (hits.length === 0) {
             return { hit: null, place: null };
@@ -369,39 +444,109 @@ export class Scene {
         return this.world.in_bounds(...cell) && !this.world.get(...cell);
     }
 
+    /**
+     * Does what a click or touch means at a place on the canvas.
+     * @param {"place"|"break"|"pick"|null} action
+     */
+    _act(action, client_x, client_y, event) {
+        if (!action) {
+            return;
+        }
+        const { hit, place } = this.pick(client_x, client_y);
+        const target = action === "place" ? place : hit;
+        if (target) {
+            this.on_action(action, target[0], target[1], target[2], event);
+        }
+    }
+
     _bind_pointer() {
-        let down = null;
+        /** @type {Map<number, {x: number, y: number, button: number, type: string, timer: number|null, long: boolean, last: {x: number, y: number}}>} */
+        const down = new Map();
+        const cancel = (state) => {
+            clearTimeout(state.timer);
+            state.timer = null;
+        };
         this.canvas.addEventListener("contextmenu", e => e.preventDefault());
         this.canvas.addEventListener("pointerdown", (e) => {
-            down = { x: e.clientX, y: e.clientY, button: e.button };
-        });
-        this.canvas.addEventListener("pointerup", (e) => {
-            if (down && down.button === e.button
-                && Math.hypot(e.clientX - down.x, e.clientY - down.y) < CLICK_MOVE_LIMIT) {
-                const { hit, place } = this.pick(e.clientX, e.clientY);
-                const target = e.button === 2 || e.altKey || this.erase ? hit : place;
-                if (target) {
-                    this.on_click(target[0], target[1], target[2], e.button, e);
+            if (this.first_person) {
+                return;
+            }
+            const state = { x: e.clientX, y: e.clientY, button: e.button, type: e.pointerType, timer: null, long: false, moved: false, last: { x: e.clientX, y: e.clientY } };
+            if (e.pointerType !== "mouse") {
+                // A second finger is a pinch or a pan: nothing is built by it
+                for (const other of down.values()) {
+                    cancel(other);
+                    other.long = true;
+                }
+                const repeat = () => {
+                    if (state.moved) {
+                        return;
+                    }
+                    state.long = true;
+                    navigator.vibrate?.(15);
+                    this._act(action_for({ type: state.type, long: true }), state.last.x, state.last.y, e);
+                    state.timer = setTimeout(repeat, REPEAT_MS + 50);
+                };
+                state.timer = setTimeout(repeat, LONG_PRESS_MS);
+                if (down.size > 0) {
+                    cancel(state);
+                    state.long = true;
                 }
             }
-            down = null;
+            down.set(e.pointerId, state);
         });
         this.canvas.addEventListener("pointermove", (e) => {
+            if (this.first_person) {
+                return;
+            }
+            const state = down.get(e.pointerId);
+            if (state) {
+                state.last = { x: e.clientX, y: e.clientY };
+                if (Math.hypot(e.clientX - state.x, e.clientY - state.y) >= CLICK_MOVE_LIMIT) {
+                    state.moved = true;
+                    cancel(state);
+                }
+            }
             if (e.buttons) {
                 this.hover.visible = false;
                 return;
             }
-            const { hit, place } = this.pick(e.clientX, e.clientY);
-            const cell = this.erase ? hit : place;
-            this.hover.material.color.set(this.erase ? 0xff4040 : 0xffff00);
-            this.hover.visible = cell !== null;
-            if (cell) {
-                this.hover.position.set(cell[0] + 0.5, cell[1] + 0.5, cell[2] + 0.5);
+            this._show_hover(e.clientX, e.clientY);
+        });
+        const finish = (e) => {
+            const state = down.get(e.pointerId);
+            down.delete(e.pointerId);
+            if (state) {
+                cancel(state);
+            }
+        };
+        this.canvas.addEventListener("pointerup", (e) => {
+            const state = down.get(e.pointerId);
+            finish(e);
+            if (this.first_person || !state || state.long || state.button !== e.button
+                || Math.hypot(e.clientX - state.x, e.clientY - state.y) >= CLICK_MOVE_LIMIT) {
+                return;
+            }
+            this._act(action_for({ type: e.pointerType, button: e.button, alt: e.altKey, erase: this.erase, mapping: this.mapping }), e.clientX, e.clientY, e);
+        });
+        this.canvas.addEventListener("pointercancel", finish);
+        this.canvas.addEventListener("pointerleave", (e) => {
+            this.hover.visible = false;
+            if (e.pointerType === "mouse") {
+                finish(e);
             }
         });
-        this.canvas.addEventListener("pointerleave", () => {
-            this.hover.visible = false;
-        });
+    }
+
+    /** Outlines the block under the cursor (or, with the classic buttons, the empty cell next to it) */
+    _show_hover(client_x, client_y) {
+        const { hit, place } = this.pick(client_x, client_y);
+        const cell = hover_target({ mapping: this.mapping, erase: this.erase }) === "hit" ? (hit ?? place) : place;
+        this.hover.material.color.set(this.erase ? 0xff4040 : 0xffff00);
+        this.hover.visible = cell !== null;
+        if (cell) {
+            this.hover.position.set(cell[0] + 0.5, cell[1] + 0.5, cell[2] + 0.5);
+        }
     }
 
     /** @returns {Promise<Blob>} PNG of the current view */
@@ -410,7 +555,7 @@ export class Scene {
         this.hover.visible = false;
         this.plane_group.visible = false;
         this.world_mesh.flush();
-        this.renderer.render(this.scene, this.camera);
+        this.renderer.render(this.scene, this.active_camera);
         this.plane_group.visible = plane_visible;
         return new Promise(resolve => this.canvas.toBlob(resolve, "image/png"));
     }
@@ -426,9 +571,21 @@ export class Scene {
                 this._exit_view();
             }
         }
+        if (this.fly) {
+            const dt = this._last_frame ? Math.min(0.1, (now - this._last_frame) / 1000) : 0;
+            this.on_fly_frame(dt, now);
+            this._apply_fly();
+            if (this.fp_crosshair) {
+                const rect = this.canvas.getBoundingClientRect();
+                this._show_hover(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            }
+        }
+        this._last_frame = now;
         this.world_mesh.update();
-        this.renderer.render(this.scene, this.camera);
-        this.gizmo.draw();
+        this.renderer.render(this.scene, this.active_camera);
+        if (!this.fly) {
+            this.gizmo.draw();
+        }
         requestAnimationFrame(this._frame);
     }
 }

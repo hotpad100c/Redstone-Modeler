@@ -39,6 +39,9 @@ export class SettingsPanel {
         this.ui_language_select = $("ui_language");
         this.language_select = $("search_language");
         this.language_note = $("language_note");
+        this.mouse_mapping = $("mouse_mapping");
+        this.fly_speed = $("fly_speed");
+        this.look_sensitivity = $("look_sensitivity");
 
         for (const input of Object.values(this.size_inputs)) {
             input.min = SIZE_LIMITS.min;
@@ -62,6 +65,20 @@ export class SettingsPanel {
             this.settings.search_language = this.language_select.value;
             save(this.settings);
             this.on_language_change();
+        });
+        this.mouse_mapping.addEventListener("change", () => {
+            this.settings.mouse_mapping = normalize({ mouse_mapping: this.mouse_mapping.value }).mouse_mapping;
+            this.scene.mapping = this.settings.mouse_mapping;
+            save(this.settings);
+        });
+        this.fly_speed.addEventListener("change", () => {
+            this.settings.fly_speed = normalize({ fly_speed: this.fly_speed.value }).fly_speed;
+            this.fly_speed.value = this.settings.fly_speed;
+            save(this.settings);
+        });
+        this.look_sensitivity.addEventListener("input", () => {
+            this.settings.look_sensitivity = normalize({ look_sensitivity: this.look_sensitivity.value }).look_sensitivity;
+            save(this.settings);
         });
         $("settings_reset").addEventListener("click", () => this.reset());
         $("settings_close").addEventListener("click", () => dialog.close());
@@ -146,6 +163,10 @@ export class SettingsPanel {
         this._fill_ui_languages();
         this.ui_language_select.value = this.settings.language;
         this.language_select.value = this.effective_language();
+        this.mouse_mapping.value = this.settings.mouse_mapping;
+        this.fly_speed.value = this.settings.fly_speed;
+        this.look_sensitivity.value = this.settings.look_sensitivity;
+        this.scene.mapping = this.settings.mouse_mapping;
         this.background.value = this.settings.background;
         this.plane_color.value = this.settings.plane_color;
         this.plane_opacity.value = this.settings.plane_opacity;
