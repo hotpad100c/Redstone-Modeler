@@ -13,7 +13,7 @@ test("world roundtrip through serialize/deserialize", () => {
     const copy = new World({ x: 4, y: 4, z: 4 });
     assert.equal(deserialize(JSON.parse(JSON.stringify(save)), copy), 0);
     assert.deepEqual(copy.get(1, 2, 3), { name: "minecraft:observer", props: { facing: "up", powered: "true" } });
-    assert.equal(copy.blocks.size, 3);
+    assert.equal(copy.count, 3);
 });
 
 test("loading a save gives the world the size stored in it", () => {
@@ -29,15 +29,15 @@ test("blocks outside the size written in a save are dropped and counted", () => 
     const save = { version: 2, size: { x: 2, y: 2, z: 2 }, packs: [], palette: [{ name: "minecraft:stone", props: {} }], blocks: [[0, 0, 0, 0], [5, 0, 0, 0]] };
     const world = new World({ x: 9, y: 9, z: 9 });
     assert.equal(deserialize(save, world), 1);
-    assert.equal(world.blocks.size, 1);
+    assert.equal(world.count, 1);
 });
 
 test("saves with an impossible size are rejected before anything changes", () => {
     const world = new World({ x: 3, y: 3, z: 3 });
     world.set(0, 0, 0, { name: "minecraft:stone", props: {} });
-    const save = { version: 2, size: { x: 500, y: 1, z: 1 }, palette: [], blocks: [] };
+    const save = { version: 2, size: { x: 5000, y: 1, z: 1 }, palette: [], blocks: [] };
     assert.throws(() => deserialize(save, world), /out of range/);
-    assert.equal(world.blocks.size, 1);
+    assert.equal(world.count, 1);
     assert.deepEqual(world.size, { x: 3, y: 3, z: 3 });
 });
 

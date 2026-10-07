@@ -46,7 +46,7 @@ export const zh_cn = {
     "settings.space": "模型空间",
     "settings.size_y": "Y（高度）",
     "settings.apply": "应用",
-    "settings.size_help": "每边 1 到 64 格。缩小空间会删除范围外的方块。空间很大时可能会变慢。",
+    "settings.size_help": "每边 1 到 4096 格。缩小空间会删除范围外的方块。大空间会分块构建，但方块数量非常多时仍可能变慢。",
     "settings.language_title": "语言",
     "settings.ui_language": "界面",
     "settings.auto": "自动",

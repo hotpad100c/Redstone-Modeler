@@ -3,7 +3,7 @@ import { World } from "./model/World.mjs";
 import * as Settings from "./model/Settings.mjs";
 import { decode, deserialize, encode, serialize } from "./model/Save.mjs";
 import { load_compiled } from "./pack/Loader.mjs";
-import { get_active, get_pack_bytes } from "./cache/PackCache.mjs";
+import { get_active, get_model, get_pack_bytes, set_model } from "./cache/PackCache.mjs";
 import { IconRenderer } from "./render/Icons.mjs";
 import { Resources } from "./render/Resources.mjs";
 import { Scene } from "./render/Scene.mjs";
@@ -329,10 +329,12 @@ $("image_button").addEventListener("click", async () => {
     }
 });
 
-// Keep the model between visits
-function restore() {
+// Keep the model between visits. A small one goes to localStorage, which can be read at once; a big
+// one (localStorage keeps a few megabytes) goes to IndexedDB.
+const LOCAL_LIMIT = 1_000_000;
+async function restore() {
     try {
-        const saved = localStorage.getItem(AUTOSAVE_KEY);
+        const saved = localStorage.getItem(AUTOSAVE_KEY) ?? await get_model();
         if (saved) {
             deserialize(JSON.parse(saved), world);
             scene.apply_world_size();
@@ -343,17 +345,26 @@ function restore() {
         console.warn("Could not restore the last model", e);
     }
 }
-restore();
+await restore();
 let saved_version = world.version;
 function autosave() {
     if (world.version !== saved_version) {
         saved_version = world.version;
+        const text = JSON.stringify(serialize(world, resources ? [resources.pack.name] : []));
         try {
-            localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(serialize(world, resources ? [resources.pack.name] : [])));
+            if (text.length <= LOCAL_LIMIT) {
+                localStorage.setItem(AUTOSAVE_KEY, text);
+                set_model(null).catch(() => {});
+                return;
+            }
+            localStorage.removeItem(AUTOSAVE_KEY);
         }
         catch {
-            // Storage full or blocked; the model just will not persist
+            // Storage full or blocked: try the other one
         }
+        set_model(text).catch(() => {
+            // Blocked or full; the model just will not persist
+        });
     }
 }
 setInterval(autosave, 1500);
