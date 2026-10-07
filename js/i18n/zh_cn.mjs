@@ -102,6 +102,7 @@ export const zh_cn = {
     "pack.folder_failed": "无法读取文件夹 {name}：{reason}",
     "pack.add_first": "请先添加至少一个资源包。",
     "pack.done": "完成：{name}（{size}）",
+    "pack.done_problems": "有 {textures} 张贴图没找到或读不出来，涉及 {blocks} 个方块（会显示缺失贴图），例如：{examples}。完整列表在浏览器控制台里。",
     "pack.compile_failed": "编译失败：{reason}",
     "pack.storage_persistent": "浏览器存储是持久的。",
     "pack.storage_may_clear": "磁盘空间不足时浏览器可能清除已保存的资源包。请导出 .rmpack 文件作为备份。",

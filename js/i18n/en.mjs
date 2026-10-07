@@ -104,6 +104,7 @@ export const en = {
     "pack.folder_failed": "Could not read folder {name}: {reason}",
     "pack.add_first": "Add at least one resource pack first.",
     "pack.done": "Done: {name} ({size})",
+    "pack.done_problems": "{textures} textures were not found or could not be read, in {blocks} blocks (they show the missing texture), for example: {examples}. The browser console has the whole list.",
     "pack.compile_failed": "Compile failed: {reason}",
     "pack.storage_persistent": "Browser storage is persistent.",
     "pack.storage_may_clear": "The browser may clear stored packs when disk space is low. Export .rmpack files as a backup.",
