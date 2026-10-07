@@ -6,7 +6,7 @@
 # Browsers keep module files for a while, and Pages lets them. After a release a visitor could get
 # the new index.html together with old cached modules, which breaks the page. So the build id is
 # added to the address of every file of the editor: the entry script, the stylesheet and every
-# relative import. The modules of classic.html are left alone.
+# relative import.
 set -euo pipefail
 
 out="${1:-_site}"
@@ -14,7 +14,7 @@ build="${2:-dev}"
 
 rm -rf "$out"
 mkdir -p "$out"
-cp -r index.html classic.html app.css style.css js lib lzma data assets "$out"/
+cp -r index.html app.css js lib lzma data "$out"/
 
 # Relative imports: `from "./x.mjs"` and `import("./x.mjs")`
 rewrite='s#(from[[:space:]]*["'"'"'])(\.{1,2}/[^"'"'"']+\.m?js)(["'"'"'])#\1\2?v='"$build"'\3#g;'
@@ -42,3 +42,6 @@ grep -q "content=\"$build\"" "$out/index.html"
 grep -q "three.module.min.js?v=$build" "$out/js/render/Scene.mjs"
 grep -q "en.mjs?v=$build" "$out/js/i18n/i18n.mjs"
 grep -q "Nbt.mjs?v=$build" "$out/js/schematic/Litematic.mjs"
+# Nothing of the old editor or of the game's pictures belongs in the site
+test ! -e "$out/classic.html"
+test ! -e "$out/assets"

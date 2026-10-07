@@ -56,6 +56,8 @@ const context = await browser.newContext({ locale: "en-US", viewport: { width: 1
 const page = await context.newPage();
 const problems = [];
 page.on("pageerror", e => problems.push(e.message));
+const requested = [];
+page.on("request", request => requested.push(new URL(request.url()).pathname));
 page.on("console", (m) => {
     if (m.type() === "error" && !m.text().includes("404")) {
         problems.push(`${m.text()} ${m.location().url}`);
@@ -1953,6 +1955,8 @@ await step("phone: quick repeated taps place blocks and never zoom the page", as
     assert.equal(await mobile.evaluate(() => window.visualViewport.scale), 1);
     await phone.close();
 });
+
+assert.deepEqual(requested.filter(path => /classic|\/assets\/|style\.css|logo/.test(path)), [], "the page asks for nothing of the old editor");
 
 await browser.close();
 server.close();

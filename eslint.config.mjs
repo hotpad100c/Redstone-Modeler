@@ -1,17 +1,19 @@
 import globals from "globals";
-import pluginJs from "@eslint/js";
+import js from "@eslint/js";
 import stylistic from "@stylistic/eslint-plugin";
 
+const style = stylistic.configs.customize({
+    indent: 4,
+    quotes: "double",
+    semi: true,
+    jsx: false,
+});
+
 export default [
+    { ignores: ["lib/**"] },
     { languageOptions: { globals: globals.browser } },
     { files: ["tests/**"], languageOptions: { globals: globals.node } },
-    { ignores: ["lib/**"] },
-    pluginJs.configs.recommended,
+    js.configs.recommended,
+    style,
     { rules: { eqeqeq: ["error", "always"] } },
-    stylistic.configs.customize({
-        indent: 4,
-        quotes: "double",
-        semi: true,
-        jsx: false,
-    }),
 ];
