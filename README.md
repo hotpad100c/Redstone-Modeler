@@ -1,12 +1,14 @@
-# [Redstone-Modeler](https://undecentions.github.io/Redstone-Modeler)
+# Redstone Modeler
 
-![gif](logo_repeat.gif)
+A real-time 3D block editor for Minecraft builds, in the browser. It reads the resource packs, mods and game files that you give it, shows every block state, and opens and saves litematic, Sponge schematic and structure files.
 
-Modeler for redstone. Replacement for the old RS Editor. AKA "RSM."
+## Where it comes from
 
-## This fork: real 3D and your own resource packs
+This started as a fork of [Undecentions/Redstone-Modeler](https://github.com/Undecentions/Redstone-Modeler), an editor with pre-rendered isometric blocks. The editor you get at `index.html` (real-time three.js rendering, resource pack compiler and stacking, sharing, schematic files, first person, the chunked world) is new code; of the original it only has the page boilerplate, some lint settings and the LZMA library for old save codes. What is still from the original, and kept for now: the old editor `classic.html` with `js/main.mjs`, `js/Model.mjs`, `js/ModelBlock.mjs`, `js/Images.mjs`, `js/Canvas.mjs`, `js/Selection.mjs`, `js/config.mjs` and `style.css`; the 68 pre-rendered pictures in `assets/`; the renderer that made them in `assets_renderer/`; and the models for blocks the game draws with code (chests, beds, signs), which `data/fallback.json` copied from `assets_renderer/mcassets/custom`. `lzma/` is a third-party library for the old save codes.
 
-The main page (`index.html`) is now a real-time three.js editor. The old pre-rendered isometric editor is kept as `classic.html`; its saves are not compatible.
+## Real 3D and your own resource packs
+
+The main page (`index.html`) is a real-time three.js editor. The old pre-rendered isometric editor is kept as `classic.html`; its saves are not compatible.
 
 - **Bring your own resource packs.** Nothing from Minecraft is bundled. Open *Resource packs*, add one or more `.zip` packs (or a folder), put them in order and press *Compile and use*. Mod `.jar` files work too: only their `assets` are read (and those of mods inside them), never the classes. *Add Minecraft (official)* downloads the client jar of a release from Mojang into your browser when you click (it needs Mojang to allow the request from the page; if the browser refuses, add the `client.jar` from `.minecraft/versions/` yourself) and puts it at the bottom of the stack. A compiled `.rmpack` is recognised by what is in it, not by its name, and is opened on its own; it cannot be stacked with others.
 - **Stacking.** Packs higher in the list override packs below them, file by file, like in Minecraft. Block states are the union of what all packs describe, so a redstone visualisation pack that models `powered` for blocks the vanilla pack never textures makes that property show up.

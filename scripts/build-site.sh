@@ -14,7 +14,7 @@ build="${2:-dev}"
 
 rm -rf "$out"
 mkdir -p "$out"
-cp -r index.html classic.html app.css style.css js lib lzma data assets logo_*.mp4 logo_repeat.gif "$out"/
+cp -r index.html classic.html app.css style.css js lib lzma data assets "$out"/
 
 # Relative imports: `from "./x.mjs"` and `import("./x.mjs")`
 rewrite='s#(from[[:space:]]*["'"'"'])(\.{1,2}/[^"'"'"']+\.m?js)(["'"'"'])#\1\2?v='"$build"'\3#g;'

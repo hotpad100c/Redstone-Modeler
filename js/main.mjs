@@ -136,22 +136,14 @@ window.addEventListener("error", (e) => {
 
 const start = new Date().getTime();
 
-document.getElementById("logo_source").src = `logo${window.innerWidth > window.innerHeight ? "_wide" : "_tall"}.mp4`;
-document.getElementById("logo").addEventListener("loadeddata", () => {
-    console.log("Logo loaded:", new Date().getTime() - start);
-});
-document.getElementById("logo").load();
-
 await Images.load_images(Images.imageURLs);
 console.log("Images loaded:", new Date().getTime() - start);
 
-const splash = new Promise(resolve => setTimeout(resolve, 1000));
 const load_main = new Promise((resolve) => {
     main();
     resolve();
 });
 
-await splash;
 await load_main;
 
 document.getElementById("splash").style.pointerEvents = "none";
