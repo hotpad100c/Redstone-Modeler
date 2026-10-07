@@ -1846,6 +1846,30 @@ await step("first person on a touch screen: stick, lift buttons, dragging turns,
     await fresh.close();
 });
 
+await step("textures given as {sprite, force_translucent} objects (game of 2026) are found, and drawn see-through", async () => {
+    const { fresh, other } = await fresh_page();
+    const files = {
+        ...base_files(),
+        "assets/minecraft/blockstates/stained.json": { variants: { "": { model: "minecraft:block/stained" } } },
+        "assets/minecraft/models/block/stained.json": { parent: "minecraft:block/cube_all", textures: { all: { force_translucent: true, sprite: "minecraft:block/stained" } } },
+        "assets/minecraft/textures/block/stained.png": png(16, 16, [200, 30, 30]),
+    };
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "new.zip", mimeType: "application/zip", buffer: Buffer.from(zip_of(files)) }]);
+    await other.waitForFunction(() => document.querySelectorAll("#source_list li:not(.note)").length === 1);
+    await other.click("#compile_button");
+    await other.waitForFunction(() => document.querySelector("#compile_status").textContent.startsWith("Done"), null, { timeout: 30000 });
+    const found = await other.evaluate(() => {
+        const { pack } = window.__rm.resources;
+        const textures = pack.geometry("minecraft:stained", {}).quads.map(q => q.tex);
+        return { textures: [...new Set(textures)], rect: pack.texture("minecraft:block/stained") };
+    });
+    assert.deepEqual(found.textures, ["minecraft:block/stained"], "not the missing texture");
+    assert.equal(found.rect.translucent, true, "forced to be see-through although every pixel is solid");
+    assert.equal(found.rect.opaque, false);
+    await fresh.close();
+});
+
 await step("phone: quick repeated taps place blocks and never zoom the page", async () => {
     const phone = await browser.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
     const mobile = await phone.newPage();
