@@ -13,7 +13,15 @@ export const DEFAULTS = Object.freeze({
     // Network clipboard for share links, and whether the user agreed to uploading
     share_service: "mclogs",
     share_consent: false,
+    // Left button breaks and right button places, as in Minecraft; "classic" is the other way round
+    mouse_mapping: "minecraft",
+    // First person: blocks per second, and how far a drag of a finger turns the view (1 is the usual)
+    fly_speed: 8,
+    look_sensitivity: 1,
 });
+
+export const FLY_SPEED_LIMITS = { min: 2, max: 30 };
+export const LOOK_SENSITIVITY_LIMITS = { min: 0.2, max: 3 };
 
 const STORAGE_KEY = "redstone-modeler.settings";
 const INTERFACE_LANGUAGE = /^(auto|[A-Za-z]{2,3}(-[A-Za-z0-9]+)*)$/;
@@ -28,6 +36,11 @@ export function valid_size(size) {
     return size !== null && typeof size === "object"
         && ["x", "y", "z"].every(axis => Number.isInteger(size[axis])
         && size[axis] >= SIZE_LIMITS.min && size[axis] <= SIZE_LIMITS.max);
+}
+
+function clamp_number(value, { min, max }, fallback) {
+    const number = Number(value);
+    return value !== null && value !== "" && Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
 }
 
 /**
@@ -58,6 +71,9 @@ export function normalize(raw) {
             : DEFAULTS.search_language,
         share_service: typeof input.share_service === "string" && /^[a-z]{2,16}$/.test(input.share_service) ? input.share_service : DEFAULTS.share_service,
         share_consent: input.share_consent === true,
+        mouse_mapping: input.mouse_mapping === "classic" ? "classic" : "minecraft",
+        fly_speed: clamp_number(input.fly_speed, FLY_SPEED_LIMITS, DEFAULTS.fly_speed),
+        look_sensitivity: clamp_number(input.look_sensitivity, LOOK_SENSITIVITY_LIMITS, DEFAULTS.look_sensitivity),
     };
 }
 

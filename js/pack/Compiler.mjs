@@ -101,6 +101,7 @@ export function collect(stack, extra_properties = {}, fallback = { blockstates: 
     const index = {};
     const models = {};
     const textures = new Set();
+    const forced = new Set();
 
     for (const name of stack.list_ids("blockstates", "json").sort()) {
         let defs = stack.json_all(asset_path("blockstates", name, "json"))
@@ -121,6 +122,13 @@ export function collect(stack, extra_properties = {}, fallback = { blockstates: 
                 if (!(key in models)) {
                     const model = resolver.resolve(key);
                     models[key] = model;
+                    for (const id of model?.force_translucent ?? []) {
+                        forced.add(id);
+                    }
+                    if (model) {
+                        // Only the pack needs it, to draw such textures as see-through; the model does not
+                        delete model.force_translucent;
+                    }
                     for (const element of model?.elements ?? []) {
                         for (const face of Object.values(element.faces)) {
                             if (face.texture) {
@@ -141,5 +149,5 @@ export function collect(stack, extra_properties = {}, fallback = { blockstates: 
         }
     }
     const { languages, names } = collect_lang(stack, Object.keys(index));
-    return { blockstates, index, models, textures: [...textures].sort(), languages, lang: names };
+    return { blockstates, index, models, textures: [...textures].sort(), force_translucent: [...forced].sort(), languages, lang: names };
 }

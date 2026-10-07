@@ -258,12 +258,13 @@ await step("entity blocks get the bundled fallback model", async () => {
     assert.ok(quads > 6, `chest quads: ${quads}`);
 });
 
-await step("clicking the floor places the selected block", async () => {
+await step("right click places the selected block on the floor, left click breaks it", async () => {
     await page.evaluate(() => window.__rm.picker.select("minecraft:stone"));
     const pos = await page.evaluate(() => window.__rm.scene.screen_position(10, -0.5, 10));
-    await page.mouse.click(pos.x, pos.y);
-    assert.equal(await page.evaluate(() => window.__rm.world.count), 1);
     await page.mouse.click(pos.x, pos.y, { button: "right" });
+    assert.equal(await page.evaluate(() => window.__rm.world.count), 1);
+    const block = await page.evaluate(() => window.__rm.scene.screen_position(10, 0, 10));
+    await page.mouse.click(block.x, block.y);
     assert.equal(await page.evaluate(() => window.__rm.world.count), 0);
 });
 
@@ -355,24 +356,24 @@ await step("2D view hides blocks in front of the plane and dims blocks behind it
     assert.ok(behind < on_plane * 0.5, `dimmed: ${behind} vs ${on_plane}`);
 });
 
-await step("2D view: click places on the plane, right click removes, plane moves with + and -", async () => {
+await step("2D view: right click places on the plane, left click removes, plane moves with + and -", async () => {
     await page.evaluate(() => window.__rm.picker.select("minecraft:stone"));
     const at = (x, z) => page.evaluate(([a, b]) => window.__rm.scene.screen_position(a, 10, b), [x, z]);
     let pos = await at(5, 5);
-    await page.mouse.click(pos.x, pos.y);
+    await page.mouse.click(pos.x, pos.y, { button: "right" });
     assert.ok(await page.evaluate(() => window.__rm.world.get(5, 10, 5) !== null), "placed on the plane");
     // Replacing: another block over it
     await page.evaluate(() => window.__rm.picker.select("minecraft:glass"));
-    await page.mouse.click(pos.x, pos.y);
-    assert.equal(await page.evaluate(() => window.__rm.world.get(5, 10, 5).name), "minecraft:glass");
     await page.mouse.click(pos.x, pos.y, { button: "right" });
+    assert.equal(await page.evaluate(() => window.__rm.world.get(5, 10, 5).name), "minecraft:glass");
+    await page.mouse.click(pos.x, pos.y);
     assert.equal(await page.evaluate(() => window.__rm.world.get(5, 10, 5)), null);
 
     await page.click("#layer_up");
     assert.equal(await page.textContent("#layer_number"), "y = 11");
     pos = await at(6, 6);
     await page.evaluate(() => window.__rm.picker.select("minecraft:stone"));
-    await page.mouse.click(pos.x, pos.y);
+    await page.mouse.click(pos.x, pos.y, { button: "right" });
     assert.ok(await page.evaluate(() => window.__rm.world.get(6, 11, 6) !== null), "placed one level higher");
     await page.click("#layer_down");
     await page.click("#layer_down");
@@ -1500,6 +1501,372 @@ await step("schematics: a file dropped on the page opens, a file that cannot be 
     await other.setInputFiles("#schematic_file", [{ name: "huge.nbt", mimeType: "application/octet-stream", buffer: huge }]);
     await other.waitForFunction(() => document.getElementById("schematic_import_status").classList.contains("error"), null, { timeout: 15000 });
     assert.match(await other.textContent("#schematic_import_status"), /4096 blocks at most/);
+    await fresh.close();
+});
+
+async function page_with_pack(context_options = null) {
+    let fresh;
+    let other;
+    if (context_options) {
+        fresh = await browser.newContext(context_options);
+        other = await fresh.newPage();
+        other.on("pageerror", e => problems.push(e.message));
+        await other.goto(url);
+        await other.waitForFunction(() => window.__rm);
+    }
+    else {
+        ({ fresh, other } = await fresh_page());
+    }
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "Test stack.rmpack", mimeType: "application/zip", buffer: Buffer.from(rmpack_bytes) }]);
+    await other.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+    await other.click("#pack_close");
+    return { fresh, other };
+}
+
+await step("buttons: left breaks, right places, middle picks; the classic setting turns left and right round; the outline shows the block", async () => {
+    const { fresh, other } = await page_with_pack();
+    await other.evaluate(() => {
+        const { world, picker } = window.__rm;
+        world.clear();
+        world.set(10, 0, 10, { name: "minecraft:glass", props: {} });
+        picker.select("minecraft:stone");
+    });
+    const glass = await other.evaluate(() => window.__rm.scene.screen_position(10, 0, 10));
+    const count = () => other.evaluate(() => window.__rm.world.count);
+    // The outline is on the block under the cursor
+    await other.mouse.move(glass.x, glass.y);
+    await other.waitForFunction(() => window.__rm.scene.hover.visible);
+    assert.deepEqual(await other.evaluate(() => window.__rm.scene.hover.position.toArray()), [10.5, 0.5, 10.5]);
+    // Middle click: the block is taken into the hotbar
+    await other.mouse.click(glass.x, glass.y, { button: "middle" });
+    assert.equal(await other.evaluate(() => window.__rm.picker.selected.name), "minecraft:glass");
+    // Right click: a block next to the face that was hit (the top)
+    await other.mouse.click(glass.x, glass.y - 4, { button: "right" });
+    assert.equal(await count(), 2);
+    // Left click: the block that was hit
+    await other.mouse.click(glass.x, glass.y);
+    assert.equal(await count(), 1);
+    // Classic: the other way round, and the outline is on the empty cell
+    await other.click("#settings_button");
+    await other.selectOption("#mouse_mapping", "classic");
+    await other.click("#settings_close");
+    assert.equal(await other.evaluate(() => window.__rm.scene.mapping), "classic");
+    await other.evaluate(() => window.__rm.world.clear());
+    await other.evaluate(() => window.__rm.world.set(10, 0, 10, { name: "minecraft:stone", props: {} }));
+    const stone = await other.evaluate(() => window.__rm.scene.screen_position(10, 0, 10));
+    await other.mouse.move(stone.x, stone.y - 1);
+    await other.mouse.move(stone.x, stone.y);
+    await other.waitForFunction(() => window.__rm.scene.hover.visible);
+    assert.notDeepEqual(await other.evaluate(() => window.__rm.scene.hover.position.toArray()), [10.5, 0.5, 10.5], "the empty cell, not the block");
+    await other.mouse.click(stone.x, stone.y);
+    assert.equal(await count(), 2, "left click places");
+    await other.mouse.click(stone.x, stone.y, { button: "right" });
+    assert.equal(await count(), 1, "right click breaks");
+    // The choice is remembered
+    await other.reload();
+    await other.waitForFunction(() => window.__rm?.resources);
+    assert.equal(await other.evaluate(() => window.__rm.scene.mapping), "classic");
+    await fresh.close();
+});
+
+await step("touch: a tap places, a press and hold breaks, moving or a second finger cancels the hold", async () => {
+    const { fresh, other } = await page_with_pack({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    const cdp = await fresh.newCDPSession(other);
+    const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+    await other.evaluate(() => {
+        window.__rm.world.clear();
+        window.__rm.world.set(8, 0, 8, { name: "minecraft:stone", props: {} });
+        window.__rm.world.set(9, 0, 8, { name: "minecraft:stone", props: {} });
+        window.__rm.picker.select("minecraft:stone");
+    });
+    const count = () => other.evaluate(() => window.__rm.world.count);
+    const at = (x, y, z) => other.evaluate(([a, b, c]) => window.__rm.scene.screen_position(a, b, c), [x, y, z]);
+    // Tap on the floor: a block is placed
+    let pos = await at(5, -0.5, 5);
+    await other.touchscreen.tap(pos.x, pos.y);
+    assert.equal(await count(), 3, "a tap places");
+    // Press and hold on a block: it breaks, and letting go does not place anything
+    pos = await at(8, 0, 8);
+    await touch("touchStart", [[pos.x, pos.y]]);
+    await other.waitForTimeout(700);
+    assert.equal(await other.evaluate(() => window.__rm.world.get(8, 0, 8)), null, "the block under the finger is gone");
+    await touch("touchEnd", []);
+    await other.waitForTimeout(100);
+    const after_hold = await count();
+    assert.ok(after_hold <= 2, `nothing was placed when the finger was lifted (${after_hold})`);
+    // A short press is only a tap
+    pos = await at(9, 0, 8);
+    await touch("touchStart", [[pos.x, pos.y]]);
+    await other.waitForTimeout(150);
+    await touch("touchEnd", []);
+    await other.waitForTimeout(100);
+    assert.ok(await other.evaluate(() => window.__rm.world.get(9, 0, 8) !== null), "the block is still there");
+    // Moving the finger turns the view, and does not break
+    const before = await count();
+    pos = await at(9, 0, 8);
+    await touch("touchStart", [[pos.x, pos.y]]);
+    await touch("touchMove", [[pos.x + 40, pos.y + 10]]);
+    await other.waitForTimeout(700);
+    await touch("touchEnd", []);
+    await other.waitForTimeout(100);
+    assert.equal(await count(), before, "a drag neither places nor breaks");
+    // Two fingers: a pinch builds nothing, even after a long time
+    pos = await at(9, 0, 8);
+    await touch("touchStart", [[pos.x, pos.y]]);
+    await touch("touchStart", [[pos.x, pos.y], [pos.x + 80, pos.y + 30]]);
+    await other.waitForTimeout(700);
+    await touch("touchEnd", []);
+    await other.waitForTimeout(100);
+    assert.equal(await count(), before, "two fingers build nothing");
+    assert.equal(await other.evaluate(() => window.visualViewport.scale), 1);
+    await fresh.close();
+});
+
+/** A wall of stone across x at z = 10, and a few more blocks, for the first person tests */
+async function build_wall(target) {
+    await target.evaluate(() => {
+        const { world, scene, picker } = window.__rm;
+        scene.set_size({ x: 20, y: 10, z: 30 });
+        world.clear();
+        for (let x = 2; x <= 14; x++) {
+            for (let y = 0; y <= 5; y++) {
+                world.set(x, y, 10, { name: "minecraft:stone", props: {} });
+            }
+        }
+        picker.select("minecraft:glass");
+    });
+}
+
+await step("first person: it flies through blocks, left breaks, right places, middle picks, the wheel changes the block, F leaves", async () => {
+    const { fresh, other } = await page_with_pack();
+    await build_wall(other);
+    const orbit = await other.evaluate(() => ({ position: window.__rm.scene.camera.position.toArray(), target: window.__rm.scene.controls.target.toArray(), zoom: window.__rm.scene.camera.zoom }));
+    await other.keyboard.press("f");
+    await other.waitForFunction(() => window.__rm.first_person.active);
+    assert.equal(await other.evaluate(() => document.body.classList.contains("first-person")), true);
+    assert.equal(await other.evaluate(() => window.__rm.scene.active_camera.isPerspectiveCamera), true);
+    assert.equal(await other.evaluate(() => window.__rm.scene.controls.enabled), false);
+    assert.equal(await other.locator("#top_bar").isVisible(), false, "the page is the view");
+    assert.equal(await other.locator("#hotbar").isVisible(), true, "the hotbar stays");
+    await other.waitForTimeout(500);
+    // The mouse is locked to the page (when the browser lets it); moving it turns the view, and Esc pauses
+    if (await other.evaluate(() => document.pointerLockElement === document.getElementById("canvas3d"))) {
+        await other.mouse.move(300, 300);
+        const turned = await other.evaluate(() => [window.__rm.scene.fly.yaw, window.__rm.scene.fly.pitch]);
+        await other.mouse.move(380, 330);
+        const now = await other.evaluate(() => [window.__rm.scene.fly.yaw, window.__rm.scene.fly.pitch]);
+        assert.ok(now[0] < turned[0], "moving the mouse to the right turns the view to the right");
+        assert.ok(now[1] < turned[1], `moving it down looks down ${turned} ${now}`);
+        await other.evaluate(() => document.exitPointerLock());
+        await other.waitForFunction(() => !document.getElementById("fp_pause").hidden);
+        assert.equal(await other.locator("#fp_pause").isVisible(), true, "paused when the mouse is let go");
+        await other.click("#fp_resume");
+        await other.waitForFunction(() => document.pointerLockElement === document.getElementById("canvas3d"));
+        assert.equal(await other.locator("#fp_pause").isVisible(), false);
+    }
+    // Keys that belong to the editor do nothing here
+    await other.keyboard.press("e"); // opens the block list, and is not the eraser
+    assert.equal(await other.evaluate(() => window.__rm.scene.erase), false);
+    assert.equal(await other.evaluate(() => document.body.classList.contains("fp-inventory")), true);
+    await other.keyboard.press("e");
+    assert.equal(await other.evaluate(() => document.body.classList.contains("fp-inventory")), false);
+    // Without a locked mouse the middle of the view is what a click acts on
+    await other.evaluate(() => {
+        window.__rm.first_person.can_lock = false;
+        window.__rm.first_person._sync();
+        const { scene } = window.__rm;
+        scene.fly.position = [8.5, 2.5, 15];
+        scene.fly.yaw = 0;
+        scene.fly.pitch = 0;
+    });
+    assert.equal(await other.locator("#fp_pause").isVisible(), false);
+    const box = await other.locator("#canvas3d").boundingBox();
+    const middle = [box.x + box.width / 2, box.y + box.height / 2];
+    const world_count = () => other.evaluate(() => window.__rm.world.count);
+    const wall = await world_count();
+    await other.waitForFunction(() => window.__rm.scene.world_mesh.idle);
+    await other.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    assert.equal(await other.evaluate(() => window.__rm.scene.hover.visible), true, "the block in the middle is outlined");
+    assert.deepEqual(await other.evaluate(() => window.__rm.scene.hover.position.toArray()), [8.5, 2.5, 10.5]);
+    // Middle click picks what is hit, even though glass is in the hand
+    await other.mouse.click(...middle, { button: "middle" });
+    assert.equal(await other.evaluate(() => window.__rm.picker.selected.name), "minecraft:stone");
+    await other.evaluate(() => window.__rm.picker.select("minecraft:glass"));
+    // Right click places in front of the wall
+    await other.mouse.click(...middle, { button: "right" });
+    assert.equal(await world_count(), wall + 1);
+    assert.equal(await other.evaluate(() => window.__rm.world.get(8, 2, 11)?.name), "minecraft:glass");
+    // Left click breaks what is hit: the glass, then the stone behind it
+    await other.mouse.click(...middle);
+    assert.equal(await other.evaluate(() => window.__rm.world.get(8, 2, 11)), null);
+    await other.mouse.click(...middle);
+    assert.equal(await other.evaluate(() => window.__rm.world.get(8, 2, 10)), null);
+    assert.equal(await world_count(), wall - 1);
+    // Out of reach: nothing happens
+    await other.evaluate(() => {
+        window.__rm.scene.fly.position = [9.5, 2.5, 28];
+    });
+    await other.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await other.mouse.click(...middle);
+    assert.equal(await world_count(), wall - 1, "the wall is 17 blocks away");
+    // The wheel changes the block in hand, round the hotbar
+    await other.evaluate(() => window.__rm.picker.set_slot(0));
+    await other.mouse.move(...middle);
+    await other.mouse.wheel(0, 40);
+    assert.equal(await other.evaluate(() => window.__rm.picker.slot), 1);
+    await other.mouse.wheel(0, -40);
+    await other.mouse.wheel(0, -40);
+    assert.equal(await other.evaluate(() => window.__rm.picker.slot), 8);
+    // Flying: W goes forward, through the wall (nothing is in the way), space goes up, shift goes down
+    await other.evaluate(() => {
+        window.__rm.scene.fly.position = [5.5, 2.5, 14];
+        window.__rm.scene.fly.yaw = 0;
+    });
+    await other.keyboard.down("KeyW");
+    await other.waitForFunction(() => window.__rm.scene.fly.position[2] < 6, null, { timeout: 8000 });
+    await other.keyboard.up("KeyW");
+    const behind = await other.evaluate(() => window.__rm.scene.fly.position);
+    assert.ok(behind[2] < 6 && Math.abs(behind[0] - 5.5) < 0.01 && Math.abs(behind[1] - 2.5) < 0.01, `flew through the wall: ${behind}`);
+    const high = await other.evaluate(() => window.__rm.scene.fly.position[1]);
+    await other.keyboard.down("Space");
+    await other.waitForTimeout(400);
+    await other.keyboard.up("Space");
+    assert.ok(await other.evaluate(() => window.__rm.scene.fly.position[1]) > high + 1.5, "space goes up");
+    await other.keyboard.down("Shift");
+    await other.waitForTimeout(800);
+    await other.keyboard.up("Shift");
+    assert.ok(await other.evaluate(() => window.__rm.scene.fly.position[1]) < high, "shift goes down");
+    // A key that is held when the page loses it does not run away
+    await other.keyboard.down("KeyS");
+    await other.evaluate(() => window.dispatchEvent(new Event("blur")));
+    const stopped = await other.evaluate(() => window.__rm.scene.fly.position[2]);
+    await other.waitForTimeout(300);
+    assert.equal(await other.evaluate(() => window.__rm.scene.fly.position[2]), stopped);
+    await other.keyboard.up("KeyS");
+
+    // F leaves, and the orbit camera is where it was
+    await other.keyboard.press("f");
+    assert.equal(await other.evaluate(() => window.__rm.first_person.active), false);
+    assert.equal(await other.evaluate(() => document.body.classList.contains("first-person")), false);
+    assert.equal(await other.locator("#top_bar").isVisible(), true);
+    const back = await other.evaluate(() => ({ position: window.__rm.scene.camera.position.toArray(), target: window.__rm.scene.controls.target.toArray(), zoom: window.__rm.scene.camera.zoom, orbit: window.__rm.scene.controls.enabled, camera: window.__rm.scene.active_camera.isOrthographicCamera }));
+    assert.deepEqual(back.position, orbit.position);
+    assert.deepEqual(back.target, orbit.target);
+    assert.equal(back.zoom, orbit.zoom);
+    assert.equal(back.orbit && back.camera, true);
+    // And the editor works as before (right click places, left click breaks)
+    const cell = await other.evaluate(() => window.__rm.scene.screen_position(5, 5, 10));
+    const before = await world_count();
+    await other.mouse.click(cell.x, cell.y);
+    assert.equal(await world_count(), before - 1);
+    await fresh.close();
+});
+
+await step("first person on a touch screen: stick, lift buttons, dragging turns, a tap places, a press and hold breaks", async () => {
+    const { fresh, other } = await page_with_pack({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    await build_wall(other);
+    const cdp = await fresh.newCDPSession(other);
+    const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+    await other.click("#fp_button");
+    await other.waitForFunction(() => window.__rm.first_person.active);
+    assert.equal(await other.evaluate(() => document.body.classList.contains("fp-touch")), true, "touch controls");
+    assert.equal(await other.locator("#fp_stick").isVisible(), true);
+    assert.equal(await other.locator("#fp_up").isVisible(), true);
+    assert.equal(await other.locator("#fp_pause").isVisible(), false, "a finger has no mouse to lock");
+    await other.evaluate(() => {
+        const { scene } = window.__rm;
+        scene.fly.position = [8.5, 2.5, 20];
+        scene.fly.yaw = 0;
+        scene.fly.pitch = 0;
+    });
+    const position = () => other.evaluate(() => [...window.__rm.scene.fly.position]);
+    // The stick, pushed forward
+    const stick = await other.locator("#fp_stick").boundingBox();
+    const centre = [stick.x + stick.width / 2, stick.y + stick.height / 2];
+    await touch("touchStart", [[centre[0], centre[1] - 45]]);
+    await other.waitForTimeout(600);
+    const moved = await position();
+    await touch("touchEnd", []);
+    assert.ok(moved[2] < 19, `the stick flew forward: ${moved}`);
+    await other.waitForTimeout(100);
+    const rest = await position();
+    await other.waitForTimeout(300);
+    assert.deepEqual(await position(), rest, "letting go stops");
+    // The lift buttons
+    const up = await other.locator("#fp_up").boundingBox();
+    await touch("touchStart", [[up.x + up.width / 2, up.y + up.height / 2]]);
+    await other.waitForTimeout(500);
+    await touch("touchEnd", []);
+    assert.ok((await position())[1] > rest[1] + 1.5, "up lifts");
+    // Dragging on the view turns it, and builds nothing
+    await other.evaluate(() => {
+        window.__rm.scene.fly.position = [8.5, 2.5, 15];
+        window.__rm.scene.fly.yaw = 0;
+    });
+    const count = () => other.evaluate(() => window.__rm.world.count);
+    const wall = await count();
+    const yaw = await other.evaluate(() => window.__rm.scene.fly.yaw);
+    await touch("touchStart", [[250, 300]]);
+    await touch("touchMove", [[300, 300]]);
+    await touch("touchMove", [[340, 300]]);
+    await other.waitForTimeout(600);
+    await touch("touchEnd", []);
+    assert.notEqual(await other.evaluate(() => window.__rm.scene.fly.yaw), yaw, "the view turned");
+    assert.equal(await count(), wall);
+    // Stick and drag at the same time
+    const before = await position();
+    await touch("touchStart", [[centre[0], centre[1] - 45], [250, 300]]);
+    await touch("touchMove", [[centre[0], centre[1] - 45], [280, 300]]);
+    await other.waitForTimeout(400);
+    await touch("touchEnd", []);
+    assert.notDeepEqual(await position(), before, "both fingers did their part");
+    assert.equal(await count(), wall);
+    // A tap places in front of the wall, a press and hold breaks it
+    await other.evaluate(() => {
+        window.__rm.scene.fly.position = [8.5, 2.5, 15];
+        window.__rm.scene.fly.yaw = 0;
+        window.__rm.picker.select("minecraft:glass");
+    });
+    await other.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const aim = await other.evaluate(() => window.__rm.scene.screen_position(8, 2, 10));
+    await other.touchscreen.tap(aim.x, aim.y);
+    assert.equal(await other.evaluate(() => window.__rm.world.get(8, 2, 11)?.name), "minecraft:glass", "a tap places");
+    await touch("touchStart", [[aim.x, aim.y]]);
+    await other.waitForTimeout(700);
+    assert.equal(await other.evaluate(() => window.__rm.world.get(8, 2, 11)), null, "a hold breaks");
+    await touch("touchEnd", []);
+    await other.waitForTimeout(100);
+    assert.ok(await count() <= wall, "lifting the finger placed nothing");
+    assert.equal(await other.evaluate(() => window.visualViewport.scale), 1);
+    // The exit button
+    await other.click("#fp_exit");
+    assert.equal(await other.evaluate(() => window.__rm.first_person.active), false);
+    assert.equal(await other.locator("#top_bar").isVisible(), true);
+    await fresh.close();
+});
+
+await step("textures given as {sprite, force_translucent} objects (game of 2026) are found, and drawn see-through", async () => {
+    const { fresh, other } = await fresh_page();
+    const files = {
+        ...base_files(),
+        "assets/minecraft/blockstates/stained.json": { variants: { "": { model: "minecraft:block/stained" } } },
+        "assets/minecraft/models/block/stained.json": { parent: "minecraft:block/cube_all", textures: { all: { force_translucent: true, sprite: "minecraft:block/stained" } } },
+        "assets/minecraft/textures/block/stained.png": png(16, 16, [200, 30, 30]),
+    };
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "new.zip", mimeType: "application/zip", buffer: Buffer.from(zip_of(files)) }]);
+    await other.waitForFunction(() => document.querySelectorAll("#source_list li:not(.note)").length === 1);
+    await other.click("#compile_button");
+    await other.waitForFunction(() => document.querySelector("#compile_status").textContent.startsWith("Done"), null, { timeout: 30000 });
+    const found = await other.evaluate(() => {
+        const { pack } = window.__rm.resources;
+        const textures = pack.geometry("minecraft:stained", {}).quads.map(q => q.tex);
+        return { textures: [...new Set(textures)], rect: pack.texture("minecraft:block/stained") };
+    });
+    assert.deepEqual(found.textures, ["minecraft:block/stained"], "not the missing texture");
+    assert.equal(found.rect.translucent, true, "forced to be see-through although every pixel is solid");
+    assert.equal(found.rect.opaque, false);
     await fresh.close();
 });
 

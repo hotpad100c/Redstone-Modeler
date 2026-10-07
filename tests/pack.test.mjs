@@ -7,6 +7,7 @@ import { CompiledPack, pretty_name } from "../js/pack/CompiledPack.mjs";
 import { read_rmpack, write_rmpack } from "../js/pack/Rmpack.mjs";
 import { Pack, locate_assets, parse_json } from "../js/pack/Pack.mjs";
 import { PackStack } from "../js/pack/PackStack.mjs";
+import { resolve_texture } from "../js/pack/Models.mjs";
 import { base_files, base_pack, compiled_pack, make_pack, overlay_pack, stack, zip_of } from "./fixtures.mjs";
 
 const extra = JSON.parse(readFileSync(new URL("../data/block_properties.json", import.meta.url), "utf8"));
@@ -308,4 +309,35 @@ test(".rmpack keeps the language files", () => {
     assert.deepEqual(Object.keys(lang), ["zh_cn"]);
     assert.equal(new TextDecoder().decode(lang.zh_cn), "{\"a\":\"b\"}");
     assert.deepEqual(read_rmpack(write_rmpack({ name: "x", atlas: {}, index: {} }, new Uint8Array([1]))).lang, {});
+});
+
+test("a texture can be an object with a sprite, as in the game of 2026; force_translucent is kept", () => {
+    const pack = make_pack("new", {
+        "assets/minecraft/blockstates/stained.json": { variants: { "": { model: "minecraft:block/stained" } } },
+        "assets/minecraft/blockstates/pane.json": { multipart: [{ apply: { model: "minecraft:block/pane_post" } }] },
+        "assets/minecraft/models/block/cube_all.json": { elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: { north: { texture: "#all" }, up: { texture: "#all" } } }] },
+        "assets/minecraft/models/block/stained.json": { parent: "minecraft:block/cube_all", textures: { all: { force_translucent: true, sprite: "minecraft:block/white_stained_glass" } } },
+        "assets/minecraft/models/block/template_pane_post.json": { elements: [{ from: [7, 0, 7], to: [9, 16, 9], faces: { north: { texture: "#pane" }, up: { texture: "#edge" } } }], textures: { particle: "#pane" } },
+        "assets/minecraft/models/block/pane_post.json": {
+            parent: "minecraft:block/template_pane_post",
+            textures: { edge: { force_translucent: true, sprite: "minecraft:block/white_stained_glass_pane_top" }, pane: { sprite: "block/white_stained_glass" } },
+        },
+    });
+    const data = collect(new PackStack([pack]), {});
+    assert.deepEqual(data.models["minecraft:block/stained"].elements.map(e => Object.values(e.faces).map(f => f.texture)), [["minecraft:block/white_stained_glass", "minecraft:block/white_stained_glass"]]);
+    assert.deepEqual(data.textures, ["minecraft:block/white_stained_glass", "minecraft:block/white_stained_glass_pane_top"]);
+    assert.deepEqual(data.force_translucent, ["minecraft:block/white_stained_glass", "minecraft:block/white_stained_glass_pane_top"]);
+    assert.equal(data.models["minecraft:block/pane_post"].particle, "minecraft:block/white_stained_glass");
+    assert.ok(!("force_translucent" in data.models["minecraft:block/stained"]), "the models stay as they were");
+    // Plain texture ids are as before, and nothing is forced
+    const plain = collect(stack(), {});
+    assert.deepEqual(plain.force_translucent, []);
+});
+
+test("a texture that is an object without a usable sprite does not resolve", () => {
+    assert.equal(resolve_texture({ a: { force_translucent: true } }, "#a"), null);
+    assert.equal(resolve_texture({ a: { sprite: 3 } }, "#a"), null);
+    assert.equal(resolve_texture({ a: { sprite: "#b" }, b: "minecraft:block/x" }, "#a"), "minecraft:block/x");
+    assert.equal(resolve_texture({ a: { sprite: "#a" } }, "#a"), null, "a loop ends");
+    assert.equal(resolve_texture({}, null), null);
 });

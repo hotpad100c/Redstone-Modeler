@@ -39,6 +39,14 @@ export async function compile(packs, { name, extra_properties = {}, fallback, pr
         data.textures,
         (done, total) => progress("compile.atlas", { done, total }),
     );
+    for (const id of data.force_translucent) {
+        // The pack says this texture is see-through whatever its pixels are
+        const rect = atlas.textures[id];
+        if (rect) {
+            rect.opaque = false;
+            rect.translucent = true;
+        }
+    }
     const colormaps = {};
     for (const map of COLORMAPS) {
         const bytes = stack.get(`assets/minecraft/textures/colormap/${map}.png`);

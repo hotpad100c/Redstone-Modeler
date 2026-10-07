@@ -2,21 +2,39 @@ import { normalize_id } from "./PackStack.mjs";
 
 /**
  * Follows `#name` texture references to a resource id.
- * @param {Record<string, string>} textures
- * @param {string|undefined} ref
+ * A texture can be a plain id, or since the game of 2026 an object `{"sprite": id, "force_translucent": true}`.
+ * @param {Record<string, string|{sprite?: string, force_translucent?: boolean}>} textures
+ * @param {string|{sprite?: string, force_translucent?: boolean}|undefined} ref
+ * @param {Set<string>} [forced] Receives the ids of textures that must be drawn as see-through
  * @returns {string|null} null when the reference never resolves
  */
-export function resolve_texture(textures, ref) {
+export function resolve_texture(textures, ref, forced) {
     const seen = new Set();
-    while (typeof ref === "string" && ref.startsWith("#")) {
-        const name = ref.slice(1);
-        if (seen.has(name)) {
-            return null;
+    let force = false;
+    for (;;) {
+        if (ref !== null && typeof ref === "object") {
+            force ||= ref.force_translucent === true;
+            ref = ref.sprite;
         }
-        seen.add(name);
-        ref = textures[name];
+        if (typeof ref === "string" && ref.startsWith("#")) {
+            const name = ref.slice(1);
+            if (seen.has(name)) {
+                return null;
+            }
+            seen.add(name);
+            ref = textures[name];
+            continue;
+        }
+        break;
     }
-    return typeof ref === "string" ? normalize_id(ref) : null;
+    if (typeof ref !== "string") {
+        return null;
+    }
+    const id = normalize_id(ref);
+    if (force) {
+        forced?.add(id);
+    }
+    return id;
 }
 
 /**
@@ -73,13 +91,18 @@ export class ModelResolver {
             Object.assign(textures, json.textures);
         }
         const source = chain.find(json => Array.isArray(json.elements));
+        const forced = new Set();
         const elements = (source?.elements ?? []).map(el => ({
             ...el,
             faces: Object.fromEntries(Object.entries(el.faces ?? {}).map(([dir, face]) => [
                 dir,
-                { ...face, texture: resolve_texture(textures, face.texture) },
+                { ...face, texture: resolve_texture(textures, face.texture, forced) },
             ])),
         }));
-        return { elements, builtin, particle: resolve_texture(textures, "#particle") };
+        const result = { elements, builtin, particle: resolve_texture(textures, "#particle", forced) };
+        if (forced.size > 0) {
+            result.force_translucent = [...forced];
+        }
+        return result;
     }
 }
