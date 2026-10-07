@@ -10,6 +10,7 @@ import { Scene } from "./render/Scene.mjs";
 import { BlockPicker } from "./ui/BlockPicker.mjs";
 import { PackPanel } from "./ui/PackPanel.mjs";
 import { SettingsPanel } from "./ui/SettingsPanel.mjs";
+import { SchematicPanel } from "./ui/SchematicPanel.mjs";
 import { SharePanel, read_text } from "./ui/SharePanel.mjs";
 import { StateBar } from "./ui/StateBar.mjs";
 import { parse_link } from "./share/Network.mjs";
@@ -92,6 +93,17 @@ const share_panel = new SharePanel({
     settings,
 });
 $("share_button").addEventListener("click", () => share_panel.open());
+
+const schematic_panel = new SchematicPanel({
+    dialog: $("schematic_dialog"),
+    world,
+    get_resources: () => resources,
+    on_loaded: () => {
+        scene.apply_world_size();
+        settings_panel.sync_size();
+    },
+});
+$("schematic_button").addEventListener("click", () => schematic_panel.open());
 
 // What the top bar says about the pack. Elements with data-i18n are translated by the page, so the
 // attribute is only there while the text is a translatable one.
@@ -376,7 +388,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Exposed for tests and debugging. Set before the saved pack loads: the interface is usable from here on.
-window.__rm = { world, scene, picker, pack_panel, state_bar, share_panel, get resources() {
+window.__rm = { world, scene, picker, pack_panel, state_bar, share_panel, schematic_panel, get resources() {
     return resources;
 } };
 

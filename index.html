@@ -72,6 +72,7 @@
             <button type="button" id="settings_button" data-i18n="top.settings">Settings</button>
             <button type="button" id="image_button" data-i18n="top.copy_image">Copy image</button>
             <button type="button" id="share_button" data-i18n="top.share" data-i18n-title="top.share_title" title="Share this model together with the resources it uses">Share</button>
+            <button type="button" id="schematic_button" data-i18n="top.schematic" data-i18n-title="top.schematic_title" title="Open or save a litematic, schematic or structure file">Schematic</button>
             <button type="button" id="save_button" data-i18n="top.save">Save</button>
             <input type="text" id="load_input" size="8" data-i18n-placeholder="top.code_placeholder" placeholder="code" />
             <button type="button" id="load_button" data-i18n="top.load">Load</button>
@@ -118,6 +119,35 @@
         </div>
 
         <div id="link_banner" role="status" hidden></div>
+
+        <dialog id="schematic_dialog">
+            <h2 data-i18n="schematic.title">Litematic, schematic and structure files</h2>
+            <section>
+                <h3 data-i18n="schematic.import_title">Open</h3>
+                <p class="note" data-i18n="schematic.import_intro">Opens .litematic (Litematica), .schem (WorldEdit and others) and .nbt (structure blocks, Create). The space gets the size of the file, and what is in the editor now is replaced. Block entities, entities and items are not read. You can also drop a file on the page.</p>
+                <div class="row">
+                    <label class="file_button"><span data-i18n="schematic.open_file">Open file</span><input id="schematic_file" type="file" accept=".litematic,.schem,.schematic,.nbt,application/octet-stream,application/gzip" /></label>
+                </div>
+                <div id="schematic_import_status" class="note"></div>
+            </section>
+            <section>
+                <h3 data-i18n="schematic.export_title">Save as a file</h3>
+                <p class="note" data-i18n="schematic.export_intro">Saves the blocks in the smallest box that holds them. Blocks the game does not know are written as they are. Nothing but blocks is saved.</p>
+                <div class="row">
+                    <label><span data-i18n="schematic.format">Format</span>
+                        <select id="schematic_format">
+                            <option value="litematic">.litematic (Litematica)</option>
+                            <option value="schem">.schem (Sponge, WorldEdit)</option>
+                            <option value="nbt">.nbt (structure)</option>
+                        </select></label>
+                    <label><span data-i18n="schematic.version">For the game version</span>
+                        <select id="schematic_version"></select></label>
+                    <button type="button" id="schematic_save" data-i18n="schematic.save">Download</button>
+                </div>
+                <div id="schematic_export_status" class="note"></div>
+            </section>
+            <div class="row"><button type="button" id="schematic_close" data-i18n="schematic.close">Close</button></div>
+        </dialog>
 
         <dialog id="share_dialog">
             <h2 data-i18n="share.title">Share this model</h2>
