@@ -102,6 +102,7 @@ export function collect(stack, extra_properties = {}, fallback = { blockstates: 
     const models = {};
     const textures = new Set();
     const forced = new Set();
+    const unresolved = new Set();
 
     for (const name of stack.list_ids("blockstates", "json").sort()) {
         let defs = stack.json_all(asset_path("blockstates", name, "json"))
@@ -134,6 +135,9 @@ export function collect(stack, extra_properties = {}, fallback = { blockstates: 
                             if (face.texture) {
                                 textures.add(face.texture);
                             }
+                            else {
+                                unresolved.add(key);
+                            }
                         }
                     }
                     if (model?.particle) {
@@ -149,5 +153,47 @@ export function collect(stack, extra_properties = {}, fallback = { blockstates: 
         }
     }
     const { languages, names } = collect_lang(stack, Object.keys(index));
-    return { blockstates, index, models, textures: [...textures].sort(), force_translucent: [...forced].sort(), languages, lang: names };
+    return { blockstates, index, models, textures: [...textures].sort(), force_translucent: [...forced].sort(), unresolved: [...unresolved].sort(), languages, lang: names };
+}
+
+/**
+ * What went wrong with the textures of a compile, in terms of blocks: which textures the models
+ * ask for and nobody has (or that cannot be read), and which models have a face that no texture reaches.
+ * @param {{blockstates: Record<string, object[]>, models: Record<string, any>, unresolved: string[]}} data
+ * @param {{id: string, reason: string}[]} problems From the atlas
+ * @returns {{textures: {id: string, reason: string, blocks: number, example: string}[], unresolved: string[], blocks: number}}
+ */
+export function texture_report(data, problems) {
+    // `missingno` is the picture the game itself shows for a missing texture; no pack has a file for it
+    const bad = new Map(problems.filter(problem => problem.id !== "minecraft:missingno").map(problem => [problem.id, { ...problem, blocks: 0, example: "" }]));
+    const unresolved = new Set(data.unresolved);
+    const affected = new Set();
+    for (const [name, defs] of Object.entries(data.blockstates)) {
+        const hit = new Set();
+        let broken = false;
+        for (const def of defs) {
+            for (const id of model_ids(def)) {
+                const model = data.models[normalize_id(id)];
+                if (unresolved.has(normalize_id(id))) {
+                    broken = true;
+                }
+                for (const element of model?.elements ?? []) {
+                    for (const face of Object.values(element.faces)) {
+                        if (face.texture && bad.has(face.texture)) {
+                            hit.add(face.texture);
+                        }
+                    }
+                }
+            }
+        }
+        for (const id of hit) {
+            const entry = bad.get(id);
+            entry.blocks++;
+            entry.example ||= name;
+        }
+        if (hit.size > 0 || broken) {
+            affected.add(name);
+        }
+    }
+    return { textures: [...bad.values()].sort((a, b) => b.blocks - a.blocks || (a.id < b.id ? -1 : 1)), unresolved: [...unresolved], blocks: affected.size };
 }

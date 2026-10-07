@@ -210,14 +210,24 @@ export class PackPanel {
         this.compile_button.disabled = true;
         try {
             await this.ready;
+            let report = null;
             const bytes = await compile(this.sources.map(s => s.pack), {
                 name,
                 extra_properties: this.extra_properties,
                 fallback: this.fallback,
                 progress: (key, vars) => this.set_status(t(key, vars)),
+                report: (found) => {
+                    report = found;
+                },
             });
             await this._store_and_use(bytes, this.sources, name);
-            this.set_status(t("pack.done", { name, size: format_size(bytes.length) }));
+            let message = t("pack.done", { name, size: format_size(bytes.length) });
+            if (report && (report.textures.length > 0 || report.unresolved.length > 0)) {
+                const worst = report.textures.slice(0, 4).map(entry => entry.id.replace(/^minecraft:/, "")).join(", ");
+                message += ` ${t("pack.done_problems", { textures: report.textures.length, blocks: report.blocks, examples: worst })}`;
+                console.warn("Textures that were not found or not readable (the blocks show the missing texture):", report);
+            }
+            this.set_status(message, false);
         }
         catch (e) {
             console.error(e);

@@ -2,7 +2,7 @@ import { strToU8 } from "../../lib/fflate.module.js";
 import { PackStack } from "./PackStack.mjs";
 import { build_atlas, decode_png, image_to_canvas } from "./Atlas.mjs";
 import { CompiledPack } from "./CompiledPack.mjs";
-import { collect } from "./Compiler.mjs";
+import { collect, texture_report } from "./Compiler.mjs";
 import { read_rmpack, write_rmpack } from "./Rmpack.mjs";
 
 const COLORMAPS = ["grass", "foliage"];
@@ -25,20 +25,24 @@ async function decode_colormap(bytes) {
  * @param {Record<string, Record<string, string[]>>} [options.extra_properties]
  * @param {{blockstates: object, models: object}} [options.fallback] Entity block models, see collect()
  * @param {(key: string, vars?: object) => void} [options.progress] Called with a key of the interface texts (`compile.*`) and its values
+ * @param {(report: ReturnType<typeof texture_report>) => void} [options.report] Called once with the textures that were not found or not readable
  * @returns {Promise<Uint8Array>}
  */
-export async function compile(packs, { name, extra_properties = {}, fallback, progress = () => {} }) {
+export async function compile(packs, { name, extra_properties = {}, fallback, progress = () => {}, report = () => {} }) {
     const stack = new PackStack(packs);
     progress("compile.reading");
     const data = collect(stack, extra_properties, fallback);
     if (Object.keys(data.index).length === 0) {
         throw Object.assign(new Error("No blocks were found in these files"), { code: "no_assets" });
     }
+    const problems = [];
     const { atlas, png } = await build_atlas(
         stack,
         data.textures,
         (done, total) => progress("compile.atlas", { done, total }),
+        problems,
     );
+    report(texture_report(data, problems));
     for (const id of data.force_translucent) {
         // The pack says this texture is see-through whatever its pixels are
         const rect = atlas.textures[id];

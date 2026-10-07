@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { enumerate_states, parse_variant_key, state_count, select_models, select_models_layered, when_matches } from "../js/pack/BlockStates.mjs";
-import { collect, collect_lang } from "../js/pack/Compiler.mjs";
+import { collect, collect_lang, texture_report } from "../js/pack/Compiler.mjs";
 import { CompiledPack, pretty_name } from "../js/pack/CompiledPack.mjs";
 import { read_rmpack, write_rmpack } from "../js/pack/Rmpack.mjs";
 import { Pack, locate_assets, parse_json } from "../js/pack/Pack.mjs";
@@ -340,4 +340,25 @@ test("a texture that is an object without a usable sprite does not resolve", () 
     assert.equal(resolve_texture({ a: { sprite: "#b" }, b: "minecraft:block/x" }, "#a"), "minecraft:block/x");
     assert.equal(resolve_texture({ a: { sprite: "#a" } }, "#a"), null, "a loop ends");
     assert.equal(resolve_texture({}, null), null);
+});
+
+test("the texture report names what is missing, with the blocks that are affected", () => {
+    const pack = make_pack("p", {
+        "assets/minecraft/blockstates/a.json": { variants: { "": { model: "minecraft:block/a" } } },
+        "assets/minecraft/blockstates/b.json": { variants: { "": { model: "minecraft:block/b" } } },
+        "assets/minecraft/blockstates/c.json": { variants: { "": { model: "minecraft:block/c" } } },
+        "assets/minecraft/blockstates/d.json": { variants: { "": { model: "minecraft:block/d" } } },
+        "assets/minecraft/models/block/a.json": { elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: { up: { texture: "#t" } } }], textures: { t: "block/gone" } },
+        "assets/minecraft/models/block/b.json": { elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: { up: { texture: "#t" }, down: { texture: "#t" } } }], textures: { t: { sprite: "block/gone" } } },
+        "assets/minecraft/models/block/c.json": { elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: { up: { texture: "#loop" } } }], textures: { loop: "#loop" } },
+        "assets/minecraft/models/block/d.json": { elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: { up: { texture: "#t" } } }], textures: { t: "block/there" } },
+    });
+    const data = collect(new PackStack([pack]), {});
+    assert.deepEqual(data.unresolved, ["minecraft:block/c"]);
+    const report = texture_report(data, [{ id: "minecraft:block/gone", reason: "is not in any of the packs" }]);
+    assert.deepEqual(report.textures, [{ id: "minecraft:block/gone", reason: "is not in any of the packs", blocks: 2, example: "minecraft:a" }]);
+    assert.deepEqual(report.unresolved, ["minecraft:block/c"]);
+    assert.equal(report.blocks, 3, "a, b and c, not d");
+    const clean = texture_report(collect(stack(), {}), []);
+    assert.deepEqual(clean, { textures: [], unresolved: [], blocks: 0 });
 });

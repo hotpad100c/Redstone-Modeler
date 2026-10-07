@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { crc32, deflateSync } from "node:zlib";
 import { strToU8, zipSync } from "../lib/fflate.module.js";
 import { BlueprintBuilder } from "../js/schematic/Blueprint.mjs";
 import { write_nbt, short } from "../js/schematic/Nbt.mjs";
@@ -1846,6 +1847,29 @@ await step("first person on a touch screen: stick, lift buttons, dragging turns,
     await fresh.close();
 });
 
+/** A PNG of grey and alpha, 8 bit: the kind the black stained glass of the game of 2026 is */
+function grey_alpha_png(w, h, [grey, alpha]) {
+    const chunk = (type, data) => {
+        const out = Buffer.alloc(12 + data.length);
+        out.writeUInt32BE(data.length, 0);
+        out.write(type, 4, "latin1");
+        Buffer.from(data).copy(out, 8);
+        out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+        return out;
+    };
+    const raw = Buffer.alloc((w * 2 + 1) * h);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            raw.set([grey, alpha], y * (w * 2 + 1) + 1 + x * 2);
+        }
+    }
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(w, 0);
+    header.writeUInt32BE(h, 4);
+    header.set([8, 4, 0, 0, 0], 8);
+    return new Uint8Array(Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]));
+}
+
 await step("textures given as {sprite, force_translucent} objects (game of 2026) are found, and drawn see-through", async () => {
     const { fresh, other } = await fresh_page();
     const files = {
@@ -1853,6 +1877,11 @@ await step("textures given as {sprite, force_translucent} objects (game of 2026)
         "assets/minecraft/blockstates/stained.json": { variants: { "": { model: "minecraft:block/stained" } } },
         "assets/minecraft/models/block/stained.json": { parent: "minecraft:block/cube_all", textures: { all: { force_translucent: true, sprite: "minecraft:block/stained" } } },
         "assets/minecraft/textures/block/stained.png": png(16, 16, [200, 30, 30]),
+        "assets/minecraft/blockstates/black_glass.json": { variants: { "": { model: "minecraft:block/black_glass" } } },
+        "assets/minecraft/models/block/black_glass.json": { parent: "minecraft:block/cube_all", textures: { all: { force_translucent: true, sprite: "minecraft:block/black_glass" } } },
+        "assets/minecraft/textures/block/black_glass.png": grey_alpha_png(16, 16, [20, 200]),
+        "assets/minecraft/blockstates/lost.json": { variants: { "": { model: "minecraft:block/lost" } } },
+        "assets/minecraft/models/block/lost.json": { parent: "minecraft:block/cube_all", textures: { all: "minecraft:block/not_in_the_pack" } },
     };
     await other.click("#pack_button");
     await other.setInputFiles("#pack_file", [{ name: "new.zip", mimeType: "application/zip", buffer: Buffer.from(zip_of(files)) }]);
@@ -1864,6 +1893,14 @@ await step("textures given as {sprite, force_translucent} objects (game of 2026)
         const textures = pack.geometry("minecraft:stained", {}).quads.map(q => q.tex);
         return { textures: [...new Set(textures)], rect: pack.texture("minecraft:block/stained") };
     });
+    // The compile says what it could not find
+    assert.match(await other.textContent("#compile_status"), /^Done: new \(.*\) \d+ textures were not found or could not be read, in \d+ blocks.*block\/not_in_the_pack/);
+    const grey = await other.evaluate(() => {
+        const { pack } = window.__rm.resources;
+        return { textures: [...new Set(pack.geometry("minecraft:black_glass", {}).quads.map(q => q.tex))], rect: pack.texture("minecraft:block/black_glass") };
+    });
+    assert.deepEqual(grey.textures, ["minecraft:block/black_glass"], "a grey and alpha picture is read");
+    assert.equal(grey.rect.translucent, true);
     assert.deepEqual(found.textures, ["minecraft:block/stained"], "not the missing texture");
     assert.equal(found.rect.translucent, true, "forced to be see-through although every pixel is solid");
     assert.equal(found.rect.opaque, false);

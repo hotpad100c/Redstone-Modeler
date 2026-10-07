@@ -1,5 +1,6 @@
 import { MISSING } from "../render/BlockMesher.mjs";
 import { asset_path } from "./PackStack.mjs";
+import { read_png } from "./Png.mjs";
 
 function make_canvas(width, height) {
     // A plain canvas: building the atlas happens on the main thread anyway, and OffscreenCanvas
@@ -26,7 +27,7 @@ export async function canvas_to_png(canvas) {
  * Decodes PNG bytes. Prefers createImageBitmap, falls back to an image element for browsers
  * that lack it or reject its options.
  * @param {Uint8Array} bytes
- * @returns {Promise<ImageBitmap|HTMLImageElement>}
+ * @returns {Promise<ImageBitmap|HTMLImageElement|HTMLCanvasElement>}
  */
 export async function decode_png(bytes) {
     const blob = new Blob([bytes], { type: "image/png" });
@@ -44,6 +45,18 @@ export async function decode_png(bytes) {
         image.src = url;
         await image.decode();
         return image;
+    }
+    catch (browser_error) {
+        // Some browsers refuse some PNGs (a kind of grey, a damaged checksum); our own reader may not
+        try {
+            const { w, h, rgba } = read_png(bytes);
+            const canvas = make_canvas(w, h);
+            canvas.getContext("2d").putImageData(new ImageData(rgba, w, h), 0, 0);
+            return canvas;
+        }
+        catch {
+            throw browser_error;
+        }
     }
     finally {
         URL.revokeObjectURL(url);
@@ -204,8 +217,9 @@ export async function repack_atlas(source, textures, ids) {
  * @param {import("./PackStack.mjs").PackStack} stack
  * @param {string[]} ids Texture ids
  * @param {(done: number, total: number) => void} [progress]
+ * @param {{id: string, reason: string}[]} [problems] Receives the textures that could not be put in: not found, or not readable
  */
-export async function build_atlas(stack, ids, progress = () => {}) {
+export async function build_atlas(stack, ids, progress = () => {}, problems = []) {
     const entries = [];
     const checker = make_canvas(16, 16);
     const check_ctx = checker.getContext("2d");
@@ -225,9 +239,13 @@ export async function build_atlas(stack, ids, progress = () => {}) {
                 const frame = image.height > image.width && image.height % image.width === 0 ? image.width : image.height;
                 entries.push({ id, image, w: image.width, h: frame });
             }
-            catch {
-                console.warn(`Could not decode texture ${id}`);
+            catch (error) {
+                console.warn(`Could not decode texture ${id}`, error);
+                problems.push({ id, reason: `could not be read (${error?.message ?? error})` });
             }
+        }
+        else {
+            problems.push({ id, reason: "is not in any of the packs" });
         }
         if (++done % 40 === 0) {
             progress(done, ids.length);
