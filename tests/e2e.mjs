@@ -13,6 +13,9 @@ import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { strToU8, zipSync } from "../lib/fflate.module.js";
+import { BlueprintBuilder } from "../js/schematic/Blueprint.mjs";
+import { write_nbt, short } from "../js/schematic/Nbt.mjs";
+import { write_blueprint } from "../js/schematic/index.mjs";
 import { base_files, overlay_files, png, zip_of } from "./fixtures.mjs";
 
 // SITE_ROOT points at an assembled site (scripts/build-site.sh) to test what gets deployed
@@ -1362,6 +1365,141 @@ await step("share: a damaged or foreign code is refused and nothing breaks", asy
     await other.click("#share_close");
     await other.click("#pack_button");
     assert.equal(await other.locator("#pack_dialog").isVisible(), true);
+    await fresh.close();
+});
+
+/** The blocks of the share tests as a schematic of the given format; the box starts at 0,0,0 like the ones the editor writes */
+function schematic_bytes(format, blocks = SHARED_BLOCKS) {
+    const low = [0, 1, 2].map(axis => blocks.reduce((best, block) => Math.min(best, block[axis]), Infinity));
+    const high = [0, 1, 2].map(axis => blocks.reduce((best, block) => Math.max(best, block[axis]), -Infinity));
+    const builder = new BlueprintBuilder({ x: high[0] - low[0] + 1, y: high[1] - low[1] + 1, z: high[2] - low[2] + 1 });
+    for (const [x, y, z, name, props] of blocks) {
+        builder.add(x - low[0], y - low[1], z - low[2], builder.entry({ name, props }));
+    }
+    return { bytes: Buffer.from(write_blueprint(builder.finish(), format, {})), low };
+}
+
+await step("schematics: every format opens with the size of the file, and what is saved opens again with the same picture", async () => {
+    for (const [format, extension] of [["litematic", "litematic"], ["schem", "schem"], ["nbt", "nbt"]]) {
+        const { bytes, low } = schematic_bytes(format);
+        const { fresh, other } = await fresh_page();
+        await other.click("#pack_button");
+        await other.setInputFiles("#pack_file", [{ name: "Test stack.rmpack", mimeType: "application/zip", buffer: Buffer.from(rmpack_bytes) }]);
+        await other.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+        await other.click("#pack_close");
+        // The same blocks placed by hand, moved to the corner as the file has them
+        await other.evaluate(([blocks, corner]) => {
+            const { world, scene } = window.__rm;
+            scene.set_size({ x: 5, y: 1, z: 3 });
+            world.clear();
+            for (const [x, y, z, name, props] of blocks) {
+                world.set(x - corner[0], y - corner[1], z - corner[2], { name, props });
+            }
+        }, [SHARED_BLOCKS, low]);
+        const wanted_size = await other.evaluate(() => window.__rm.world.size);
+        assert.deepEqual(wanted_size, { x: 5, y: 1, z: 3 });
+        const by_hand = await other.evaluate(() => [...window.__rm.world.entries()].length);
+        await other.evaluate(() => {
+            // A different size, so that opening the file has to set the size
+            window.__rm.scene.set_size({ x: 30, y: 30, z: 30 });
+            window.__rm.world.clear();
+        });
+        await other.click("#schematic_button");
+        await other.setInputFiles("#schematic_file", [{ name: `model.${extension}`, mimeType: "application/octet-stream", buffer: bytes }]);
+        await other.waitForFunction(() => /^Opened/.test(document.getElementById("schematic_import_status").textContent), null, { timeout: 15000 });
+        assert.match(await other.textContent("#schematic_import_status"), /5 × 1 × 3, 6 blocks, 6 kinds/);
+        assert.deepEqual(await other.evaluate(() => window.__rm.world.size), { x: 5, y: 1, z: 3 });
+        assert.equal(await other.evaluate(() => window.__rm.world.count), by_hand);
+        assert.deepEqual(await other.evaluate(() => [document.getElementById("size_x").value, document.getElementById("size_y").value, document.getElementById("size_z").value]), ["5", "1", "3"], "the settings show the new size");
+        // The observer is in the model with its state
+        assert.deepEqual(await other.evaluate(() => window.__rm.world.get(0, 0, 0)), { name: "minecraft:observer", props: { facing: "south", powered: "true" } });
+
+        // Save it again in the same format and open that in another browser
+        await other.selectOption("#schematic_format", format);
+        const [download] = await Promise.all([other.waitForEvent("download"), other.click("#schematic_save")]);
+        assert.equal(download.suggestedFilename(), `model.${extension}`);
+        const saved = await readFile(await download.path());
+        assert.match(await other.textContent("#schematic_export_status"), /Saved 6 blocks, 5 × 1 × 3/);
+        await other.click("#schematic_close");
+        await fixed_view(other);
+        const first = await picture_of(other);
+        assert.ok(first.red > 0, "the powered observer shows");
+
+        const second = await fresh_page();
+        await second.other.click("#pack_button");
+        await second.other.setInputFiles("#pack_file", [{ name: "Test stack.rmpack", mimeType: "application/zip", buffer: Buffer.from(rmpack_bytes) }]);
+        await second.other.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+        await second.other.click("#pack_close");
+        await second.other.click("#schematic_button");
+        await second.other.setInputFiles("#schematic_file", [{ name: `again.${extension}`, mimeType: "application/octet-stream", buffer: saved }]);
+        await second.other.waitForFunction(() => /^Opened/.test(document.getElementById("schematic_import_status").textContent), null, { timeout: 15000 });
+        await second.other.click("#schematic_close");
+        await fixed_view(second.other);
+        assert.deepEqual(await picture_of(second.other), first, `${format}: the saved file shows the same picture`);
+        await second.fresh.close();
+        await fresh.close();
+    }
+});
+
+await step("schematics: a file dropped on the page opens, a file that cannot be read says why, a big model is built", async () => {
+    const { fresh, other } = await fresh_page();
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "Test stack.rmpack", mimeType: "application/zip", buffer: Buffer.from(rmpack_bytes) }]);
+    await other.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+    await other.click("#pack_close");
+    const { bytes } = schematic_bytes("schem");
+    await other.evaluate(async (base64) => {
+        const file = new File([Uint8Array.from(atob(base64), c => c.charCodeAt(0))], "dropped.schem");
+        const data = new DataTransfer();
+        data.items.add(file);
+        document.getElementById("canvas3d").dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+    }, bytes.toString("base64"));
+    await other.waitForFunction(() => /^Opened/.test(document.getElementById("schematic_import_status").textContent), null, { timeout: 15000 });
+    assert.equal(await other.evaluate(() => window.__rm.world.count), 6);
+    await other.click("#schematic_close");
+
+    // Files that are not schematics, and the ones that are not supported
+    const old_schematic = Buffer.from(write_nbt({ Width: short(1), Height: short(1), Length: short(1), Materials: "Alpha", Blocks: Int8Array.of(1), Data: Int8Array.of(0) }, "Schematic"));
+    const cases = [
+        ["old.schematic", old_schematic, /old \.schematic/],
+        ["notes.litematic", Buffer.from("this is not nbt"), /not a schematic/],
+        ["other.nbt", Buffer.from(write_nbt({ hello: 1 }, "")), /not a litematic/],
+        ["bedrock.mcstructure", Buffer.from([10, 0, 0, 3, 7, 0, 102, 111, 114, 109, 97, 116, 95, 118, 1, 0, 0, 0, 0]), /Bedrock/],
+    ];
+    const kept = await other.evaluate(() => window.__rm.world.count);
+    for (const [name, buffer, expected] of cases) {
+        await other.click("#schematic_button");
+        await other.setInputFiles("#schematic_file", [{ name, mimeType: "application/octet-stream", buffer }]);
+        await other.waitForFunction(() => document.getElementById("schematic_import_status").classList.contains("error"), null, { timeout: 15000 });
+        assert.match(await other.textContent("#schematic_import_status"), expected, name);
+        assert.equal(await other.evaluate(() => window.__rm.world.count), kept, "a file that fails changes nothing");
+        await other.click("#schematic_close");
+    }
+
+    // A model of 200 x 30 x 200 with more than 100000 blocks goes in and gets built in pieces
+    const big = [];
+    for (let x = 0; x < 200; x++) {
+        for (let z = 0; z < 200; z++) {
+            for (let y = 0; y < 3 + ((x + z) % 3); y++) {
+                big.push([x, y, z, (x + y + z) % 5 === 0 ? "minecraft:glass" : "minecraft:stone", {}]);
+            }
+        }
+    }
+    const large = schematic_bytes("litematic", big);
+    await other.click("#schematic_button");
+    await other.setInputFiles("#schematic_file", [{ name: "big.litematic", mimeType: "application/octet-stream", buffer: large.bytes }]);
+    await other.waitForFunction(() => /^Opened/.test(document.getElementById("schematic_import_status").textContent), null, { timeout: 60000 });
+    assert.match(await other.textContent("#schematic_import_status"), /200 × 5 × 200, 160,000 blocks|200 × 5 × 200, 160000 blocks/);
+    assert.match(await other.textContent("#schematic_import_status"), /big model/);
+    await other.waitForFunction(() => window.__rm.scene.world_mesh.idle, null, { timeout: 60000 });
+    assert.ok(await other.evaluate(() => window.__rm.scene.world_mesh.meshes.length) > 0);
+    await other.click("#schematic_close");
+    // A size above the limit of the space is refused
+    const huge = Buffer.from(write_nbt({ DataVersion: 3955, size: { type: 3, items: [5000, 1, 1] }, palette: { type: 10, items: [{ Name: "minecraft:stone" }] }, blocks: { type: 10, items: [] } }, ""));
+    await other.click("#schematic_button");
+    await other.setInputFiles("#schematic_file", [{ name: "huge.nbt", mimeType: "application/octet-stream", buffer: huge }]);
+    await other.waitForFunction(() => document.getElementById("schematic_import_status").classList.contains("error"), null, { timeout: 15000 });
+    assert.match(await other.textContent("#schematic_import_status"), /4096 blocks at most/);
     await fresh.close();
 });
 
