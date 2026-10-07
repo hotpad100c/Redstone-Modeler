@@ -123,7 +123,7 @@ export class SharePanel {
             this._reset(t("share.need_pack"));
             return;
         }
-        if (this.world.blocks.size === 0) {
+        if (this.world.count === 0) {
             this._reset(t("share.empty"));
             return;
         }

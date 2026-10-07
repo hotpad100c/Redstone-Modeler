@@ -46,7 +46,7 @@ export const en = {
     "settings.space": "Model space",
     "settings.size_y": "Y (height)",
     "settings.apply": "Apply",
-    "settings.size_help": "1 to 64 blocks per side. Blocks outside a smaller space are removed. Very large spaces can be slow.",
+    "settings.size_help": "1 to 4096 blocks per side. Blocks outside a smaller space are removed. Large spaces are built in pieces, but a model with very many blocks can still be slow.",
     "settings.language_title": "Language",
     "settings.ui_language": "Interface",
     "settings.auto": "Automatic",

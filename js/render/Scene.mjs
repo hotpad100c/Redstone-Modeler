@@ -20,7 +20,10 @@ function make_grid(w, h) {
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
-    return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }));
+    // Nothing in front of the plane is shown, so the grid can ignore depth; lines lying on block faces would otherwise flicker
+    const grid = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthTest: false }));
+    grid.renderOrder = 3;
+    return grid;
 }
 
 /**
@@ -276,6 +279,11 @@ export class Scene {
                     transparent: true,
                     opacity: this.plane_style.opacity,
                     depthWrite: false,
+                    // It lies exactly on the faces of the blocks of the plane; without the offset it is lost
+                    // or kept depending on how the vertices of the chunks were rounded
+                    polygonOffset: true,
+                    polygonOffsetFactor: -1,
+                    polygonOffsetUnits: -1,
                 }),
             );
             this.plane_group.add(marker, make_grid(w, h));
@@ -302,6 +310,9 @@ export class Scene {
         this.camera.right = half * aspect;
         this.camera.top = half;
         this.camera.bottom = -half;
+        // Orthographic: everything between the near and far planes is drawn, so a big world needs deep ones
+        this.camera.near = -(half * 2 + 500);
+        this.camera.far = half * 2 + 500;
         this.camera.updateProjectionMatrix();
     }
 
@@ -322,7 +333,7 @@ export class Scene {
         if (this.view) {
             return this._pick_plane();
         }
-        this.world_mesh.update();
+        this.world_mesh.flush();
         const hits = this.raycaster.intersectObjects([...this.world_mesh.meshes, this.floor_plane], false);
         if (hits.length === 0) {
             return { hit: null, place: null };
@@ -398,7 +409,7 @@ export class Scene {
         const plane_visible = this.plane_group.visible;
         this.hover.visible = false;
         this.plane_group.visible = false;
-        this.world_mesh.update();
+        this.world_mesh.flush();
         this.renderer.render(this.scene, this.camera);
         this.plane_group.visible = plane_visible;
         return new Promise(resolve => this.canvas.toBlob(resolve, "image/png"));

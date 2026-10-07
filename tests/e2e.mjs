@@ -259,9 +259,9 @@ await step("clicking the floor places the selected block", async () => {
     await page.evaluate(() => window.__rm.picker.select("minecraft:stone"));
     const pos = await page.evaluate(() => window.__rm.scene.screen_position(10, -0.5, 10));
     await page.mouse.click(pos.x, pos.y);
-    assert.equal(await page.evaluate(() => window.__rm.world.blocks.size), 1);
+    assert.equal(await page.evaluate(() => window.__rm.world.count), 1);
     await page.mouse.click(pos.x, pos.y, { button: "right" });
-    assert.equal(await page.evaluate(() => window.__rm.world.blocks.size), 0);
+    assert.equal(await page.evaluate(() => window.__rm.world.count), 0);
 });
 
 await step("powered observer renders with the overlay texture, unpowered with the base one", async () => {
@@ -434,7 +434,7 @@ await step("look-alike states can be hidden", async () => {
 });
 
 await step("eraser tool and clear all", async () => {
-    const world_size = () => page.evaluate(() => window.__rm.world.blocks.size);
+    const world_size = () => page.evaluate(() => window.__rm.world.count);
     assert.equal(await world_size(), 5);
     await frame(); // the viewport may just have been resized by the state bar closing
     const pos = await page.evaluate(() => window.__rm.scene.screen_position(10, 0, 10));
@@ -467,14 +467,14 @@ await step("save code round trip", async () => {
     await page.evaluate(() => window.__rm.world.clear());
     await page.fill("#load_input", code);
     await page.click("#load_button");
-    await page.waitForFunction(() => window.__rm.world.blocks.size === 5);
+    await page.waitForFunction(() => window.__rm.world.count === 5);
 });
 
 await step("compiled pack is cached in the browser and restored after reload", async () => {
     await page.reload();
     await page.waitForFunction(() => window.__rm?.resources, null, { timeout: 15000 });
     assert.equal(await page.textContent("#pack_summary"), "Test stack");
-    assert.equal(await page.evaluate(() => window.__rm.world.blocks.size), 5, "model autosaved");
+    assert.equal(await page.evaluate(() => window.__rm.world.count), 5, "model autosaved");
     assert.ok(await page.locator(".block_item").count() > 5);
 });
 
@@ -505,7 +505,7 @@ await step("settings: a new size moves the bounds, the centre and the default pl
     assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 20, y: 20, z: 20 }, "first click only warns");
     await page.click("#size_apply");
     assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 8, y: 6, z: 10 });
-    assert.equal(await page.evaluate(() => window.__rm.world.blocks.size), 0);
+    assert.equal(await page.evaluate(() => window.__rm.world.count), 0);
     const geometry = await page.evaluate(() => {
         const { scene } = window.__rm;
         scene.bounds.geometry.computeBoundingBox();
@@ -589,10 +589,10 @@ await step("loading a save from a bigger space resizes the space", async () => {
     await page.click("#size_apply");
     await page.click("#size_apply");
     await page.click("#settings_close");
-    assert.equal(await page.evaluate(() => window.__rm.world.blocks.size), 0);
+    assert.equal(await page.evaluate(() => window.__rm.world.count), 0);
     await page.fill("#load_input", code);
     await page.click("#load_button");
-    await page.waitForFunction(() => window.__rm.world.blocks.size === 1);
+    await page.waitForFunction(() => window.__rm.world.count === 1);
     assert.deepEqual(await page.evaluate(() => window.__rm.world.size), { x: 12, y: 12, z: 12 });
     await page.click("#settings_button");
     assert.equal(await page.inputValue("#size_z"), "12");
@@ -790,6 +790,134 @@ await step("when Mojang cannot be reached the way out is explained", async () =>
     assert.equal(await other.locator("#vanilla_button").isDisabled(), false);
     await fresh.close();
     problems.length = before;
+});
+
+await step("large worlds: chunks are built in pieces, only the chunks that changed are built again", async () => {
+    const { fresh, other } = await fresh_page();
+    await other.click("#pack_button");
+    await other.setInputFiles("#pack_file", [{ name: "Test stack.rmpack", mimeType: "application/zip", buffer: Buffer.from(rmpack_bytes) }]);
+    await other.waitForFunction(() => window.__rm.resources, null, { timeout: 15000 });
+    await other.click("#pack_close");
+    // A space far bigger than the old limit of 64, filled solid in one corner
+    const filled = await other.evaluate(async () => {
+        const { world, scene } = window.__rm;
+        scene.set_size({ x: 300, y: 40, z: 300 });
+        const stone = { name: "minecraft:stone", props: {} };
+        const glass = { name: "minecraft:glass", props: {} };
+        const started = performance.now();
+        for (let x = 0; x < 96; x++) {
+            for (let z = 0; z < 96; z++) {
+                for (let y = 0; y < 20; y++) {
+                    world.set(x, y, z, (x + z) % 17 === 0 && y === 19 ? glass : stone);
+                }
+            }
+        }
+        world.set(299, 39, 299, stone);
+        const set_ms = performance.now() - started;
+        // Frames pass while the chunks are built; count how many calls it takes
+        const mesh = scene.world_mesh;
+        let frames = 0;
+        const build_started = performance.now();
+        while (!mesh.idle) {
+            await new Promise(r => requestAnimationFrame(r));
+            frames++;
+            if (frames > 2000) {
+                break;
+            }
+        }
+        return { blocks: world.count, chunks: world.chunks.size, set_ms, frames, build_ms: performance.now() - build_started, meshes: mesh.meshes.length };
+    });
+    console.log(`  large world: ${filled.blocks} blocks in ${filled.chunks} chunks, set in ${Math.round(filled.set_ms)} ms, built over ${filled.frames} frames in ${Math.round(filled.build_ms)} ms`);
+    assert.equal(filled.blocks, 96 * 96 * 20 + 1);
+    assert.ok(filled.frames > 1, "a big build is spread over several frames");
+    assert.ok(filled.meshes > 0);
+
+    // An edit builds only the chunks it touches: the meshes of all the others are the very same objects
+    const edit = await other.evaluate(async () => {
+        const { world, scene } = window.__rm;
+        const mesh = scene.world_mesh;
+        const before = new Map(mesh.chunk_meshes);
+        world.set(40, 25, 40, { name: "minecraft:stone", props: {} });
+        mesh.update(Infinity);
+        let same = 0;
+        let changed = 0;
+        for (const [key, meshes] of mesh.chunk_meshes) {
+            if (before.get(key) && before.get(key)[0] === meshes[0]) {
+                same++;
+            }
+            else {
+                changed++;
+            }
+        }
+        // On a chunk border the neighbour is built again too
+        const border_before = new Map(mesh.chunk_meshes);
+        world.set(47, 3, 47, { name: "minecraft:glass", props: {} });
+        mesh.update(Infinity);
+        let border_changed = 0;
+        for (const [key, meshes] of mesh.chunk_meshes) {
+            if (border_before.get(key)?.[0] !== meshes[0]) {
+                border_changed++;
+            }
+        }
+        return { same, changed, total: mesh.chunk_meshes.size, border_changed };
+    });
+    assert.ok(edit.changed >= 1 && edit.changed <= 2, `${edit.changed} chunks changed`);
+    assert.ok(edit.same > 30, `${edit.same} chunks left alone`);
+    assert.ok(edit.border_changed >= 1 && edit.border_changed <= 4, `${edit.border_changed} changed at a border`);
+
+    // Picking works through the chunk meshes, and the model is kept (it is too big for localStorage)
+    await other.evaluate(() => {
+        const { scene } = window.__rm;
+        scene.camera.zoom = 2;
+        scene.camera.position.set(120, 90, 120);
+        scene.controls.target.set(48, 10, 48);
+        scene.camera.updateProjectionMatrix();
+        scene.controls.update();
+    });
+    await other.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const picked = await other.evaluate(() => {
+        const { scene } = window.__rm;
+        const p = scene.screen_position(48, 19, 48);
+        return scene.pick(p.x, p.y);
+    });
+    assert.ok(picked.hit, "a block of a far chunk is hit");
+    assert.deepEqual(picked.hit, [48, 19, 48]);
+    assert.deepEqual(picked.place, [48, 20, 48]);
+
+    // A 2D view across several chunks still shows the whole cut
+    await other.evaluate(() => window.__rm.scene.view_to("+y"));
+    await other.waitForFunction(() => window.__rm.scene.view !== null && !window.__rm.scene.animation, null, { timeout: 5000 });
+    await other.evaluate(() => window.__rm.scene.set_plane(10));
+    await other.waitForFunction(() => window.__rm.scene.world_mesh.idle, null, { timeout: 30000 });
+    const cut = await other.evaluate(() => window.__rm.scene.world_mesh.meshes.reduce((sum, mesh) => sum + mesh.userData.cells.length, 0));
+    assert.ok(cut > 96 * 96, `${cut} faces in the cut`);
+    // Moving the plane inside one chunk layer builds only what the plane passed through
+    await other.evaluate(() => window.__rm.scene.view_to("+x"));
+    await other.waitForFunction(() => window.__rm.scene.view?.axis === 0 && !window.__rm.scene.animation, null, { timeout: 5000 });
+    await other.evaluate(() => window.__rm.scene.set_plane(40));
+    await other.waitForFunction(() => window.__rm.scene.world_mesh.idle, null, { timeout: 30000 });
+    const moved = await other.evaluate(async () => {
+        const { scene } = window.__rm;
+        const mesh = scene.world_mesh;
+        const before = new Map(mesh.chunk_meshes);
+        scene.set_plane(41);
+        mesh.update(Infinity);
+        let changed = 0;
+        for (const [key, meshes] of mesh.chunk_meshes) {
+            if (before.get(key)?.[0] !== meshes[0]) {
+                changed++;
+            }
+        }
+        return { changed, total: mesh.chunk_meshes.size };
+    });
+    assert.ok(moved.changed > 0 && moved.changed < moved.total / 2, `${moved.changed} of ${moved.total} chunks built again for one step of the plane`);
+
+    await other.waitForFunction(() => window.__rm.world.count > 100000);
+    await other.waitForTimeout(2200);
+    await other.reload();
+    await other.waitForFunction(() => window.__rm?.resources && window.__rm.world.count > 100000, null, { timeout: 30000 });
+    assert.deepEqual(await other.evaluate(() => window.__rm.world.size), { x: 300, y: 40, z: 300 });
+    await fresh.close();
 });
 
 await step("a damaged saved pack is reported on the page and the interface still works", async () => {
@@ -1003,7 +1131,7 @@ await step("share: a browser without any resource pack shows the same picture fr
     assert.equal(await other.locator("#onboarding").isVisible(), true);
     await other.fill("#load_input", shared_code);
     await other.click("#load_button");
-    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.count === 6, null, { timeout: 15000 });
     assert.equal(await other.locator("#onboarding").isVisible(), false);
     assert.match(await other.textContent("#pack_summary"), /\(shared\)$/);
     // Only the blocks that were used
@@ -1027,7 +1155,7 @@ await step("share: a state that was not placed is missing with 'only used states
         const { fresh, other } = await fresh_page();
         await other.fill("#load_input", code);
         await other.click("#load_button");
-        await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+        await other.waitForFunction(() => window.__rm.resources && window.__rm.world.count === 6, null, { timeout: 15000 });
         const textures = await other.evaluate(() => window.__rm.resources.pack.geometry("minecraft:observer", { facing: "east", powered: "false" }).quads.map(q => q.tex));
         assert.equal(textures.every(tex => tex === "minecraft:missing"), expect_missing, textures.join());
         await fresh.close();
@@ -1064,7 +1192,7 @@ await step("share: the file and the whole pack work as well", async () => {
     const second = await fresh_page();
     await second.other.fill("#load_input", pack_code);
     await second.other.click("#load_button");
-    await second.other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    await second.other.waitForFunction(() => window.__rm.resources && window.__rm.world.count === 6, null, { timeout: 15000 });
     assert.equal(await second.other.locator(".block_item").count(), all_blocks);
     await fixed_view(second.other);
     assert.deepEqual(await picture_of(second.other), sender_picture);
@@ -1091,7 +1219,7 @@ await step("share: the standard encoding still works, and the compact one is sho
     const { fresh, other } = await fresh_page();
     await other.fill("#load_input", standard);
     await other.click("#load_button");
-    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.count === 6, null, { timeout: 15000 });
     await fixed_view(other);
     assert.deepEqual(await picture_of(other), sender_picture);
     await fresh.close();
@@ -1116,7 +1244,7 @@ await step("share: minimal has no readable ids, and the blocks are found by thei
     const { fresh, other } = await fresh_page();
     await other.fill("#load_input", minimal);
     await other.click("#load_button");
-    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+    await other.waitForFunction(() => window.__rm.resources && window.__rm.world.count === 6, null, { timeout: 15000 });
     await fixed_view(other);
     assert.deepEqual(await picture_of(other), sender_picture, "this model has few colours, so nothing is lost");
     const names = await other.$$eval(".block_item", items => items.map(i => i.dataset.name));
@@ -1165,7 +1293,7 @@ await step("share: a share link goes through a network clipboard and opens in an
         await page.unroute(/^https:\/\/api\./);
 
         const { fresh, other } = await fresh_page(link.slice(link.indexOf("#")), { store, log: [] });
-        await other.waitForFunction(() => window.__rm.resources && window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+        await other.waitForFunction(() => window.__rm.resources && window.__rm.world.count === 6, null, { timeout: 15000 });
         assert.equal(await other.evaluate(() => location.hash), "", "the link is removed from the address");
         assert.match(await other.textContent("#pack_summary"), /\(shared\)$/);
         await fixed_view(other);
@@ -1176,7 +1304,7 @@ await step("share: a share link goes through a network clipboard and opens in an
         const second = await fresh_page("", { store, log: [] });
         await second.other.fill("#load_input", link);
         await second.other.click("#load_button");
-        await second.other.waitForFunction(() => window.__rm.world.blocks.size === 6, null, { timeout: 15000 });
+        await second.other.waitForFunction(() => window.__rm.world.count === 6, null, { timeout: 15000 });
         await second.fresh.close();
     }
 });
@@ -1209,7 +1337,7 @@ await step("share: a service that fails, changes the content, or does not allow 
     const { fresh, other } = await fresh_page("#share=mclogs.nothing", { store: new Map() });
     await other.waitForFunction(() => document.getElementById("link_banner").classList.contains("error"), null, { timeout: 15000 });
     assert.match(await other.textContent("#link_banner"), /Could not open the shared model/);
-    assert.equal(await other.evaluate(() => window.__rm.world.blocks.size), 0);
+    assert.equal(await other.evaluate(() => window.__rm.world.count), 0);
     await other.click("#pack_button");
     assert.equal(await other.locator("#pack_dialog").isVisible(), true, "the page still works");
     await fresh.close();
@@ -1230,7 +1358,7 @@ await step("share: a damaged or foreign code is refused and nothing breaks", asy
     await other.fill("#share_paste", "RMS1.not-a-model");
     await other.click("#share_open_button");
     await other.waitForFunction(() => document.getElementById("share_open_status").textContent.startsWith("Could not open it"));
-    assert.equal(await other.evaluate(() => window.__rm.world.blocks.size), 0);
+    assert.equal(await other.evaluate(() => window.__rm.world.count), 0);
     await other.click("#share_close");
     await other.click("#pack_button");
     assert.equal(await other.locator("#pack_dialog").isVisible(), true);
@@ -1279,7 +1407,7 @@ await step("phone: quick repeated taps place blocks and never zoom the page", as
         const pos = await mobile.evaluate(([a, b]) => window.__rm.scene.screen_position(a, -0.5, b), [x, z]);
         await mobile.touchscreen.tap(pos.x, pos.y);
     }
-    assert.equal(await mobile.evaluate(() => window.__rm.world.blocks.size), cells.length);
+    assert.equal(await mobile.evaluate(() => window.__rm.world.count), cells.length);
     assert.equal(await mobile.evaluate(() => window.visualViewport.scale), 1);
     await phone.close();
 });

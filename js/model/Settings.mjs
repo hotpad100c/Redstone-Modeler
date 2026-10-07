@@ -1,4 +1,5 @@
-export const SIZE_LIMITS = { min: 1, max: 64 };
+// The space is as big as the user wants; the limit only stops a typing mistake from asking for something absurd
+export const SIZE_LIMITS = { min: 1, max: 4096 };
 
 export const DEFAULTS = Object.freeze({
     size: Object.freeze({ x: 20, y: 20, z: 20 }),

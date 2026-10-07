@@ -126,6 +126,19 @@ export async function get_active() {
 }
 
 /**
+ * The last model, kept here when it is too big for localStorage (which holds a few megabytes).
+ * @param {string|null} text JSON of the model, or null to forget it
+ */
+export async function set_model(text) {
+    await run([META], "readwrite", tx => text === null ? tx.objectStore(META).delete("model") : tx.objectStore(META).put(text, "model"));
+}
+
+/** @returns {Promise<string|null>} */
+export async function get_model() {
+    return (await run([META], "readonly", tx => tx.objectStore(META).get("model"))) ?? null;
+}
+
+/**
  * Asks the browser not to evict our data under storage pressure.
  * @returns {Promise<boolean>}
  */
